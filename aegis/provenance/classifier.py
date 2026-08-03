@@ -18,7 +18,15 @@ from __future__ import annotations
 
 from aegis.common.hashing import hash_text
 from aegis.provenance.classes import DEFAULT_CLASS, ProvenanceClass, min_trust
-from aegis.provenance.models import ContextTrace, Segment, SegmentSource, Span
+from aegis.provenance.models import (
+    ContextTrace,
+    Locator,
+    MessageLocator,
+    Segment,
+    SegmentSource,
+    Span,
+    ToolLocator,
+)
 from aegis.provenance.registry import MandateContext, ToolRegistry
 
 _SEPARATOR = "\n"
@@ -49,8 +57,8 @@ class ContextClassifier:
         for segment, text in self._tool_declaration_segments(body):
             cursor = self._append(trace, parts, segment, text, cursor)
 
-        for message in body.get("messages", []):
-            for segment, text in self._message_segments(message, trace):
+        for index, message in enumerate(body.get("messages", [])):
+            for segment, text in self._message_segments(message, index, trace):
                 cursor = self._append(trace, parts, segment, text, cursor)
 
         trace.assembled_context = _SEPARATOR.join(parts)
@@ -116,29 +124,34 @@ class ContextClassifier:
                     ),
                     span=Span(start=0, end=0),
                     text="",
+                    locator=ToolLocator(tool_name=name),
                     classification_reason=reason,
                 ),
                 text,
             )
 
-    def _message_segments(self, message: dict, trace: ContextTrace):
+    def _message_segments(self, message: dict, index: int, trace: ContextTrace):
         role = message.get("role", "")
         content = _as_text(message.get("content"))
 
         if role == "system":
             segment = self._simple(
-                content, ProvenanceClass.SYSTEM_POLICY, "system", "system role"
+                content,
+                ProvenanceClass.SYSTEM_POLICY,
+                "system",
+                "system role",
+                MessageLocator(message_index=index, start=0, end=len(content)),
             )
             yield segment, content
 
         elif role == "user":
-            yield from self._user_segments(content)
+            yield from self._user_segments(content, message_index=index)
 
         elif role == "assistant":
-            yield from self._assistant_segments(message, content, trace)
+            yield from self._assistant_segments(message, content, index, trace)
 
         elif role == "tool":
-            yield from self._tool_response_segments(message, content)
+            yield from self._tool_response_segments(message, content, index)
 
         elif content:
             yield (
@@ -147,11 +160,12 @@ class ContextClassifier:
                     DEFAULT_CLASS,
                     "user_input",
                     f"unrecognised role '{role}'; failing safe to {DEFAULT_CLASS.value}",
+                    MessageLocator(message_index=index, start=0, end=len(content)),
                 ),
                 content,
             )
 
-    def _user_segments(self, content: str):
+    def _user_segments(self, content: str, message_index: int):
         """Split a user turn into the declared mandate and everything else.
 
         Substring matching is deliberately strict: the mandate text must appear verbatim.
@@ -173,13 +187,15 @@ class ContextClassifier:
                     "user_input",
                     "user-role text does not contain the declared mandate; "
                     "role alone does not establish human intent",
+                    MessageLocator(message_index=message_index, start=0, end=len(content)),
                 ),
                 content,
             )
             return
 
+        mandate_end = index + len(instruction)
         before = content[:index]
-        after = content[index + len(instruction) :]
+        after = content[mandate_end:]
 
         if before.strip():
             yield (
@@ -188,6 +204,7 @@ class ContextClassifier:
                     DEFAULT_CLASS,
                     "user_input",
                     "text preceding the declared mandate inside a user turn",
+                    MessageLocator(message_index=message_index, start=0, end=index),
                 ),
                 before,
             )
@@ -198,6 +215,7 @@ class ContextClassifier:
                 ProvenanceClass.HUMAN_MANDATE,
                 "user_input",
                 f"verbatim match against mandate {self.mandate.mandate_id}",
+                MessageLocator(message_index=message_index, start=index, end=mandate_end),
             ),
             instruction,
         )
@@ -209,11 +227,16 @@ class ContextClassifier:
                     DEFAULT_CLASS,
                     "user_input",
                     "text following the declared mandate inside a user turn",
+                    MessageLocator(
+                        message_index=message_index, start=mandate_end, end=len(content)
+                    ),
                 ),
                 after,
             )
 
-    def _assistant_segments(self, message: dict, content: str, trace: ContextTrace):
+    def _assistant_segments(
+        self, message: dict, content: str, message_index: int, trace: ContextTrace
+    ):
         """Agent output inherits the least trust among its causal parents (control C-9).
 
         Phase 1 approximates causal parents as *every preceding segment*, which is the
@@ -239,11 +262,12 @@ class ContextClassifier:
             "agent_message",
             f"agent output; monotonicity rule over {len(parent_ids)} preceding segment(s) "
             f"yields {derived.value}",
+            MessageLocator(message_index=message_index, whole_message=True),
         )
         segment.parent_segments = parent_ids
         yield segment, rendered
 
-    def _tool_response_segments(self, message: dict, content: str):
+    def _tool_response_segments(self, message: dict, content: str, message_index: int):
         """Classify a tool result.
 
         Pinning is necessary but not sufficient for P2. A pinned *conduit* tool -- one that
@@ -267,17 +291,30 @@ class ContextClassifier:
         else:
             reason = f"response from unpinned tool '{name}'; treated as untrusted external"
         text = f"[tool_result:{name}] {content}"
-        segment = self._simple(text, cls, "tool_response", reason)
+        segment = self._simple(
+            text,
+            cls,
+            "tool_response",
+            reason,
+            MessageLocator(message_index=message_index, whole_message=True),
+        )
         segment.source.origin = tool.origin if tool else None
         yield segment, text
 
     @staticmethod
-    def _simple(text: str, cls: ProvenanceClass, kind: str, reason: str) -> Segment:
+    def _simple(
+        text: str,
+        cls: ProvenanceClass,
+        kind: str,
+        reason: str,
+        locator: Locator | None = None,
+    ) -> Segment:
         return Segment(
             **{"class": cls},
             source=SegmentSource(kind=kind, content_hash=hash_text(text)),
             span=Span(start=0, end=0),
             text="",
+            locator=locator,
             classification_reason=reason,
         )
 

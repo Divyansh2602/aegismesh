@@ -68,17 +68,32 @@ requires human-attributable intent above a threshold.
 **Phase 0 complete** — threat model and specification.
 See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) and [`docs/SPEC.md`](docs/SPEC.md).
 
-**Phase 1 complete** — interception and provenance tagging. 34 tests passing, lint clean.
+**Phase 1 complete** — interception and provenance tagging.
+
+**Phase 2 complete** — causal attribution and the evaluation harness.
+
+57 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+model: no API key, no cost.
 
 ```bash
-pip install -e ".[dev]" && pytest -q && python demo/phase1_demo.py
+pip install -e ".[dev]" && pytest -q && python demo/phase1_demo.py && python demo/phase2_eval.py
 ```
 
-The demo runs fully offline against a bundled deterministic mock model — no API key, no
-cost. It reproduces the invoice attack end to end and shows the provenance-tagged context.
+Measured on the Phase 2 case set (`results/phase2_evaluation.json`):
 
-Phase 1 **observes**; it does not enforce. The demo ends with the attack succeeding, which
-is the honest baseline Phase 3 has to change.
+```
+precision 1.000   recall 1.000   f1 1.000   localization 1.000
+mean model calls per consequential action  6.9   (worst case 12)
+```
+
+**Read those numbers narrowly.** Seven hand-built cases against a deterministic mock. They
+prove the engine is wired correctly and catch regressions quickly; they are not a
+generalization claim. Phase 4 runs against AgentDojo's 629 security cases.
+
+Phases 1 and 2 **observe and measure**; they do not enforce. The Phase 1 demo ends with the
+attack succeeding, which is the honest baseline Phase 3 has to change.
+
+Continuing this work? Start with [`HANDOFF.md`](HANDOFF.md).
 
 ## What is and isn't novel here
 

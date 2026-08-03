@@ -52,6 +52,36 @@ class Span(BaseModel):
         return self.end - self.start
 
 
+class MessageLocator(BaseModel):
+    """Where a segment lives inside the original request, so it can be removed.
+
+    Ablation has to reconstruct a *request*, not a flattened string -- the model's
+    behaviour depends on message structure, so ablating by rewriting a concatenated blob
+    would measure the wrong thing.
+
+    ``start``/``end`` are character offsets into that message's content. ``whole_message``
+    marks segments that were synthesised from a message rather than sliced out of it (a
+    tool result, an assistant turn with tool calls), where the only faithful ablation is
+    to drop the message entirely.
+    """
+
+    kind: Literal["message"] = "message"
+    message_index: int
+    start: int = 0
+    end: int = 0
+    whole_message: bool = False
+
+
+class ToolLocator(BaseModel):
+    """A segment that came from a tool *declaration* rather than a message."""
+
+    kind: Literal["tool"] = "tool"
+    tool_name: str
+
+
+Locator = MessageLocator | ToolLocator
+
+
 class Segment(BaseModel):
     """One provenance-classified piece of the model's context."""
 
@@ -60,6 +90,9 @@ class Segment(BaseModel):
     source: SegmentSource
     span: Span
     text: str
+    locator: Locator | None = None
+    """How to remove this segment from the original request. Required for ablation."""
+
     parent_segments: list[str] = Field(default_factory=list)
     """For agent-generated segments: the segments that causally influenced this one."""
 
