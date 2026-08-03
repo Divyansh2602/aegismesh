@@ -111,8 +111,8 @@ Notation: **C-n** = control. Provenance classes (`P0`–`P4`) are defined in `SP
 | T4 | Excessive agency / over-broad scope | ADV-1 | **C-8** mandate scope is an explicit allowlist of action classes with value bounds |
 | T5 | Multi-agent laundering — malicious content re-emitted as `P4` agent output | ADV-3 | **C-9** provenance classes are *monotonic*: an agent's output inherits the lowest-trust class among its causal inputs. `P3`-influenced output cannot become `P2`. |
 | T6 | Memory / context poisoning across sessions | ADV-1, ADV-3 | **C-10** stored memory retains its provenance class; recall re-tags rather than promoting to `P0` |
-| T7 | Operator forges a favourable warrant | ADV-4 | **C-11** warrant is only valid with a transparency-log inclusion proof; **C-12** relying party verifies inclusion against an independently-witnessed root |
-| T8 | Operator suppresses an inconvenient warrant | ADV-4 | **C-13** append-only log with consistency proofs; gaps and root-forks are externally detectable; optional public root anchoring |
+| T7 | Operator forges a favourable warrant | ADV-4 | **C-11** warrant is only valid with a transparency-log inclusion proof; **C-12** relying party verifies inclusion against an independently-witnessed root. **Scope: this makes a forged claim non-repudiable, not impossible — see §6.6** |
+| T8 | Operator suppresses an inconvenient warrant | ADV-4 | **C-13** append-only log with consistency proofs; **root-forks** are externally detectable, and an unlogged *permit* is unusable because the relying party requires an inclusion proof. **Omission of a denial is not detectable — see §6.7** |
 | T9 | Replay of a valid warrant onto a different action | ADV-1, ADV-3 | **C-14** warrant binds `argumentsHash` + nonce + short `validUntil`; PEP rejects mismatch or reuse |
 | T10 | Attribution evasion — input crafted so ablation shows low influence | **ADV-5** | **C-15** multi-granularity ablation (segment, sentence, span); **C-16** low attribution *confidence* is itself a policy input, so "unattributable" fails closed rather than open |
 | T11 | Cascading failure across an agent chain | ADV-3 | **C-17** chain depth limit and per-hop scope attenuation are policy-enforceable |
@@ -194,13 +194,58 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    not mechanistic causation. It can be fooled by redundant encoding — where content is
    duplicated so removing any single copy changes nothing. C-15 mitigates but does not
    eliminate this. Expect Phase 4 to find working evasions and report them.
-3. **Attribution cost may be prohibitive** for high-throughput agents. If measured cost is
+
+   Phase 3 sharpened this into a specific, testable gap. The system now reports a field no
+   single ablation moved as `invariant` rather than as unattributed, which is what lets a
+   legitimately overdetermined field be admitted. But **`invariant` does not distinguish
+   benign redundancy from adversarial redundancy.** A human and an internal ledger naming
+   the same account, and an attacker who plants the same account twice so no single removal
+   changes it, currently produce the same reading. Class-level ablation — removing every
+   segment of one provenance class at once — would separate them for |classes| extra model
+   calls. It is unimplemented, and it is the most likely place an ADV-5 evasion lives.
+3. **Some fields cannot be attributed at all at current granularity.** A field whose only
+   determining segment is also the segment whose removal cancels the action yields no
+   comparable counterfactual, ever. The transfer *amount* in our own demo is the worked
+   example: it appears only in the human's mandate, and removing that mandate removes the
+   transfer intent with it. Span-level ablation (C-15) is the specified fix and is not
+   built. Until it is, value-bound policy on such fields rests on the mandate's declared
+   constraints rather than on measured causation.
+4. **Attribution cost may be prohibitive** for high-throughput agents. If measured cost is
    unacceptable, that is a publishable finding rather than a hidden failure.
-4. **Key compromise is unmitigated cryptographically.** Warrant forgery becomes possible with
+5. **Key compromise is unmitigated cryptographically.** Warrant forgery becomes possible with
    the issuer key. Operational controls only.
-5. **The relying party must actually verify.** A PEP that is deployed but not enforced
-   provides zero security while appearing to provide it — the single most likely real-world
-   failure mode of this design.
+6. **The log proves what was said, not that it was true.** ADV-4 runs the issuer and can
+   sign a warrant asserting the human caused a field the attacker set. The signature is
+   genuine, the log entry is genuine, the inclusion proof is genuine, and every step of the
+   relying party's verification passes. What the transparency log buys is
+   **non-repudiation** — the claim is permanently and verifiably theirs — not prevention.
+   C-11 and C-12 should be read that way.
+
+   `attribution.replay_ref` (SPEC.md §4.4) commits under the signature to the exact
+   classified context the measurement was taken over, so an auditor granted the trace can
+   re-run the ablation and catch a discrepancy. That makes a lie **falsifiable**, which is
+   the strongest property available short of attested execution. The re-run verifier is
+   Phase 4 work; only the commitment exists today. This is asserted by a test that is
+   deliberately written to *pass* while the system is admitting a fraudulent action
+   (`test_the_log_does_not_prove_the_attribution_is_true`).
+7. **Consistency proofs detect rewriting, not omission.** An entry never submitted leaves no
+   gap; the tree is perfectly consistent without it. For permits this is harmless — the
+   relying party will not honour an action without an inclusion proof, so an unlogged permit
+   is unusable. For denials it is real: a suppressed denial is invisible, and what is lost
+   is evidence rather than control. An operator who never logs its refusals produces an
+   audit trail in which nothing ever went wrong.
+8. **One witness is one point of trust.** The reference implementation runs a single witness.
+   It detects a log that forks between the witness and another party — demonstrated in the
+   Phase 3 demo — but does nothing about a witness that colludes with the operator, because
+   then both sides of the comparison are the same party. *N* independent witnesses gossiping
+   heads is the production answer and is out of scope here.
+9. **The replay cache is local to one enforcement point.** Two PEPs do not share a nonce
+   cache, so one warrant can be replayed once at each. Real deployments need a shared cache
+   or an audience binding in the warrant. Also asserted by a passing test, so it cannot be
+   quietly forgotten.
+10. **The relying party must actually verify.** A PEP that is deployed but not enforced
+    provides zero security while appearing to provide it — the single most likely real-world
+    failure mode of this design.
 
 ---
 

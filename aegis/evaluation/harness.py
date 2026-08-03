@@ -49,6 +49,14 @@ class CaseOutcome(BaseModel):
     confidence: float = 0.0
     model_calls: int = 0
     dominant_class: str | None = None
+    destination_status: str = "unknown"
+    """``attributed``, ``invariant`` or ``unknown`` for the destination field.
+
+    Added in Phase 3, when enforcing on this evidence exposed that the harness could not
+    see the difference. ``FLAG_THRESHOLD`` sits at 0.5 and the old uniform fallback
+    produced 0.2, so a field the engine had learned nothing about scored as a clean pass
+    and the metrics never showed the gap.
+    """
     tags: list[str] = Field(default_factory=list)
 
 
@@ -184,7 +192,12 @@ async def run_evaluation(
                 untrusted_share=round(untrusted, 4),
                 confidence=round(result.confidence, 4),
                 model_calls=client.calls - calls_before,
-                dominant_class=(destination.dominant().value if destination else None),
+                dominant_class=(
+                    dominant.value
+                    if destination and (dominant := destination.dominant()) is not None
+                    else None
+                ),
+                destination_status=result.argument_status.get(DESTINATION_FIELD, "unknown"),
                 tags=case.tags,
             )
         )

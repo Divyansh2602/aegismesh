@@ -1,0 +1,186 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/credentials/v2",
+    "https://aegismesh.dev/ns/warrant/v1"
+  ],
+  "type": [
+    "VerifiableCredential",
+    "ActionWarrant"
+  ],
+  "id": "urn:uuid:4e6440ef-9431-46b5-88f3-c2e29e466f5b",
+  "issuer": "did:web:aegis.acme-bank.example",
+  "validFrom": "2026-08-03T20:07:54Z",
+  "validUntil": "2026-08-03T20:12:54Z",
+  "credentialSubject": {
+    "action": {
+      "tool": "treasury.payments",
+      "operation": "execute_transfer",
+      "arguments_hash": "sha256:dd0e980861c3519bc347b81afa1f7add7416d22d1812cd1eecfa889ec8b614b9",
+      "arguments_digest_map": {
+        "amount": "sha256:dd80d7a873341d491936c851964a9793195f37e646f6809dd546e2946f46d283",
+        "currency": "sha256:82bb059ec10744f31e0406b8ef7a7a0f3c30c9b18435120fa859b2c0b9627888",
+        "destination_account": "sha256:bb9de458269ce97465dedc82d5ff17d3699dd80ffb474fe62abf6bb72f1d2724"
+      },
+      "nonce": "nnc_01KZ4KTVGA7V57P2TMEW7MM082",
+      "consequential": true
+    },
+    "mandate": {
+      "id": "mnd_01J8Y",
+      "principal": "did:web:acme-bank.example:users:r.mehta",
+      "authenticated_at": "2026-08-03T19:51:54Z",
+      "auth_method": "oidc+mfa",
+      "scope": {
+        "action_classes": [
+          "treasury.payments:execute_transfer"
+        ],
+        "constraints": {
+          "amount_max": 5000000,
+          "currency": [
+            "USD"
+          ]
+        }
+      },
+      "expires_at": "2026-08-04T04:07:54Z"
+    },
+    "delegation_chain": [
+      {
+        "hop": 0,
+        "actor": "did:web:acme-bank.example:users:r.mehta",
+        "kind": "human",
+        "scope": [
+          "treasury.payments:*"
+        ],
+        "attenuated": false
+      },
+      {
+        "hop": 1,
+        "actor": "did:web:acme-bank.example:agents:procurement-orchestrator",
+        "kind": "agent",
+        "scope": [
+          "treasury.payments:execute_transfer"
+        ],
+        "manifest_hash": "sha256:b44c8b783a81f2d5875dca1f9ebf8ef41047e9f4afebc21bc55ee89b7b494b51",
+        "attenuated": true
+      },
+      {
+        "hop": 2,
+        "actor": "did:web:acme-bank.example:agents:invoice-processor",
+        "kind": "agent",
+        "scope": [
+          "treasury.payments:execute_transfer"
+        ],
+        "manifest_hash": "sha256:df35bac0941ffc2caa6f38bfcfb62b4058a4896cfd3bf1c8979a63e7002b8f20",
+        "attenuated": true
+      }
+    ],
+    "attribution": {
+      "method": "loo-ablation",
+      "method_version": "0.1.0",
+      "granularity": [
+        "segment",
+        "sentence"
+      ],
+      "resamples": 1,
+      "model_ref": "aegis-mock-1",
+      "influence": {
+        "P0": "0.5000",
+        "P3": "0.5000"
+      },
+      "necessity": {
+        "P0": "1.0000"
+      },
+      "per_argument": {
+        "amount": {},
+        "currency": {},
+        "destination_account": {
+          "P3": "1.0000"
+        }
+      },
+      "argument_status": {
+        "amount": "invariant",
+        "currency": "invariant",
+        "destination_account": "attributed"
+      },
+      "per_argument_confidence": {
+        "amount": "0.0000",
+        "currency": "0.0000",
+        "destination_account": "1.0000"
+      },
+      "top_contributors": [
+        {
+          "segment_id": "seg_01KZ4KTVG6NPGTX2B43JBWBVSX",
+          "class": "P3",
+          "origin": "mcp://vendor.example/invoice_reader",
+          "influence": "1.0000",
+          "excerpt_hash": "sha256:c89d6eb69756e09e1134b6343cac8ef76b0af85f4403d548853176386dc7fe30",
+          "granularity": "segment"
+        },
+        {
+          "segment_id": "seg_01KZ4KTVG6NPGTX2B43JBWBVSX",
+          "class": "P3",
+          "origin": "mcp://vendor.example/invoice_reader",
+          "influence": "1.0000",
+          "excerpt_hash": "sha256:ae23d19b65c93768029ec51039ea9ac09123ef766847e1428019b6c9ce9ee9df",
+          "granularity": "sentence"
+        },
+        {
+          "segment_id": "seg_01KZ4KTVG6QZY1QFYCT9EEW0BJ",
+          "class": "P0",
+          "influence": "1.0000",
+          "excerpt_hash": "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
+          "granularity": "segment"
+        },
+        {
+          "segment_id": "seg_01KZ4KTVG68W4181XJQTFCR5CD",
+          "class": "P1",
+          "influence": "0.0000",
+          "excerpt_hash": "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
+          "granularity": "segment"
+        },
+        {
+          "segment_id": "seg_01KZ4KTVG6KK3A71ZB8683XB6R",
+          "class": "P3",
+          "influence": "0.0000",
+          "excerpt_hash": "sha256:97bdf732bd599b9deb4d91e4380d5d8ffe203339db0a633c599dd3cd91ef3aa8",
+          "granularity": "segment"
+        }
+      ],
+      "confidence": "0.5693",
+      "replay_ref": {
+        "trace_hash": "sha256:766cbfb08d73192b18278c7241e382c266064163ee0c068cd595208ee2d36437",
+        "segment_hashes": [
+          "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
+          "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
+          "sha256:97bdf732bd599b9deb4d91e4380d5d8ffe203339db0a633c599dd3cd91ef3aa8",
+          "sha256:40b7339c65076ea523a63e6b5555fc731b0e8fbeceef6bc90dd18da9cd2f0d52",
+          "sha256:c89d6eb69756e09e1134b6343cac8ef76b0af85f4403d548853176386dc7fe30"
+        ],
+        "model_ref": "aegis-mock-1",
+        "method_version": "0.1.0"
+      }
+    },
+    "policy_decision": {
+      "policy_id": "aegis.operator.default",
+      "policy_version": "1.1.0",
+      "policy_hash": "sha256:ff4b494e1d1af3131cda4c99e8e865e5d3a3b658df617f893272c593b59ef4ae",
+      "decision": "deny",
+      "rules_fired": [
+        "no_untrusted_influence_on_destination",
+        "attribution_confidence_too_low"
+      ],
+      "obligations": []
+    },
+    "environment": {
+      "tool_descriptions_hash": "",
+      "agent_runtime": "aegis-proxy/0.1.0"
+    }
+  },
+  "proof": {
+    "type": "DataIntegrityProof",
+    "cryptosuite": "eddsa-jcs-2022",
+    "created": "2026-08-03T20:07:54Z",
+    "verificationMethod": "did:web:aegis.acme-bank.example#key-1",
+    "proofPurpose": "assertionMethod",
+    "proofValue": "zZNpoX5CtgNockvKNVdTqZgYZhLEJzFU7f23TZYija5uoxdyQJzMJ63aRypSyDUL4j2McpydF61kQYmrMwF2p7Lv"
+  }
+}

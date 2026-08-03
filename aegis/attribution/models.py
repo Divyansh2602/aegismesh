@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -71,11 +72,35 @@ class Contributor(BaseModel):
     """
 
     per_field: dict[str, float] = Field(default_factory=dict)
+    comparable: bool = False
+    """Whether at least one ablation of this segment left the same tool being called.
+
+    Without a comparable run there is nothing to compare field values against, so a
+    ``per_field`` of all zeros means two completely different things depending on this
+    flag: "removing it changed no value" versus "removing it cancelled the action, so no
+    value existed to change". Collapsing those two into the same number is what made a
+    legitimate payment indistinguishable from an unattributable one.
+    """
+
     granularity: str = "segment"
     sentence: str | None = None
     """Set for sentence-level contributors: the hash of the sentence, never its text."""
 
     model_config = {"populate_by_name": True}
+
+
+#: What the measurement was able to say about one argument field.
+#:
+#: The three cases are genuinely different claims and policy must be able to tell them
+#: apart. ``attributed`` -- some class measurably set this value. ``invariant`` -- runs
+#: that could have shown a change happened, and none did; the value is overdetermined or
+#: context-independent, and no class was pivotal. ``unknown`` -- every ablation cancelled
+#: the action, so no comparable run exists and nothing at all was measured.
+#:
+#: Only ``unknown`` is grounds to fail closed. Treating ``invariant`` as unknown denies
+#: every legitimate action whose fields are corroborated by more than one source, which is
+#: most of them.
+ArgumentStatus = Literal["attributed", "invariant", "unknown"]
 
 
 class InfluenceDistribution(BaseModel):
@@ -137,6 +162,24 @@ class AttributionResult(BaseModel):
     """Which classes the action *required*, as distinct from which set its field values."""
 
     per_argument: dict[str, InfluenceDistribution] = Field(default_factory=dict)
+
+    argument_status: dict[str, ArgumentStatus] = Field(default_factory=dict)
+    """Whether each field was attributed, found invariant, or could not be measured.
+
+    Carried alongside ``per_argument`` rather than folded into it because a distribution
+    cannot express "nothing was pivotal" and "we learned nothing" as different states --
+    both come out as an absence of weight.
+    """
+
+    per_argument_confidence: dict[str, float] = Field(default_factory=dict)
+    """Confidence in the *field-level* attribution, which is the unit that matters.
+
+    An action-level number averages away the case this project exists for: one action
+    simultaneously legitimate in one field and hijacked in another. A destination account
+    attributed entirely to one class is a high-confidence finding even when the action as a
+    whole splits evenly between the human and the attacker.
+    """
+
     top_contributors: list[Contributor] = Field(default_factory=list)
     confidence: float = 0.0
 
@@ -152,6 +195,10 @@ class AttributionResult(BaseModel):
             "influence": self.influence.as_dict(),
             "necessity": self.necessity.as_dict(),
             "per_argument": {k: v.as_dict() for k, v in self.per_argument.items()},
+            "argument_status": dict(sorted(self.argument_status.items())),
+            "per_argument_confidence": {
+                k: round(v, 4) for k, v in sorted(self.per_argument_confidence.items())
+            },
             "confidence": round(self.confidence, 4),
             "model_calls": self.model_calls,
         }

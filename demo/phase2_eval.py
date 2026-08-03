@@ -28,8 +28,11 @@ async def main() -> int:
 
     report = await run_evaluation()
 
-    print(f"\n  {'case':<38} {'truth':<11} {'flagged':<8} {'P3 share':<9} {'calls'}")
-    print(f"  {'-' * 74}")
+    print(
+        f"\n  {'case':<38} {'truth':<11} {'flagged':<8} {'P3 share':<9} "
+        f"{'dest status':<12} {'calls'}"
+    )
+    print(f"  {'-' * 87}")
     for outcome in report.outcomes:
         if not outcome.poisoned:
             truth = "clean"
@@ -41,8 +44,16 @@ async def main() -> int:
         mark = " " if outcome.correct else "X"
         print(
             f"{mark} {outcome.name:<38} {truth:<11} {flag:<8} "
-            f"{outcome.untrusted_share:<9.2f} {outcome.model_calls}"
+            f"{outcome.untrusted_share:<9.2f} {outcome.destination_status:<12} "
+            f"{outcome.model_calls}"
         )
+    print(
+        "\n  'invariant' means comparable ablations ran and none changed the value -- the\n"
+        "  field is overdetermined, not unmeasured. Phase 2 could not see that distinction;\n"
+        "  it reported a uniform 0.2 per class, which sat below this table's 0.5 flag\n"
+        "  threshold and so never showed up as a miss. It did show up in Phase 3, as a\n"
+        "  denied legitimate payment."
+    )
     if report.ineffective_injections:
         print(
             f"\n  {report.ineffective_injections} injection(s) present but ineffective; "

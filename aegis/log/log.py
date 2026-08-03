@@ -1,0 +1,168 @@
+"""aegis-log — the append-only transparency log (docs/SPEC.md section 5).
+
+Warrants are submitted here and receive a receipt. A relying party will not honour an
+action whose warrant has no receipt, which is what makes the log load-bearing rather than
+decorative: an operator who declines to log a permit has produced a warrant nobody will
+accept.
+
+**Why this is not a blockchain.** The requirement is tamper-evidence and third-party
+verifiability, not decentralized consensus. A Certificate-Transparency-style Merkle log
+gives append-only guarantees with O(log n) inclusion and consistency proofs at microsecond
+cost. A blockchain would add consensus latency, per-record cost, and the compliance
+problem of publishing regulated financial metadata to a public chain, while providing no
+integrity property this lacks once external witnesses exist. Anchoring roots to a public
+chain for third-party timestamping is the one genuinely useful blockchain role, and it is
+optional. THREAT_MODEL.md section 5 has the long form.
+
+**What the log does not do.** It proves an entry was recorded and never altered. It does
+not prove the entry was true. An issuer that signs a warrant containing fabricated
+attribution produces a log entry that is permanently, verifiably theirs -- which converts
+forgery from undetectable into non-repudiable, but not into prevented.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from aegis.common.hashing import HASH_PREFIX, canonical_json
+from aegis.log import merkle
+from aegis.warrant.keys import SigningKey, VerifyingKey, multibase_decode
+from aegis.warrant.models import iso, utc_now
+
+
+def encode_hash(digest: bytes) -> str:
+    return HASH_PREFIX + digest.hex()
+
+
+def decode_hash(text: str) -> bytes:
+    if not text.startswith(HASH_PREFIX):
+        raise ValueError(f"expected a {HASH_PREFIX} digest, got {text[:16]!r}")
+    return bytes.fromhex(text[len(HASH_PREFIX) :])
+
+
+class SignedTreeHead(BaseModel):
+    """The log's signed commitment to its contents at one size.
+
+    The signature covers size, root, and timestamp together. Signing the root alone would
+    let a log replay an old root under a new timestamp; signing size alongside it is what
+    makes a consistency proof between two heads meaningful.
+    """
+
+    log_id: str
+    tree_size: int
+    root_hash: str
+    timestamp: str
+    signature: str | None = None
+
+    def signed_bytes(self) -> bytes:
+        return canonical_json(
+            {
+                "log_id": self.log_id,
+                "root_hash": self.root_hash,
+                "timestamp": self.timestamp,
+                "tree_size": self.tree_size,
+            }
+        )
+
+    def verify(self, key: VerifyingKey) -> bool:
+        if not self.signature:
+            return False
+        try:
+            raw = multibase_decode(self.signature)
+        except ValueError:
+            return False
+        return key.verify(raw, self.signed_bytes())
+
+
+class Receipt(BaseModel):
+    """Proof that a specific warrant is in the log (SPEC.md section 5.1)."""
+
+    log_id: str
+    leaf_index: int
+    tree_size: int
+    root_hash: str
+    inclusion_proof: list[str] = Field(default_factory=list)
+    signed_root: SignedTreeHead
+
+    def proof_bytes(self) -> list[bytes]:
+        return [decode_hash(h) for h in self.inclusion_proof]
+
+
+class TransparencyLog:
+    """An append-only Merkle log over canonicalized warrant documents."""
+
+    def __init__(self, log_id: str, signing_key: SigningKey) -> None:
+        self.log_id = log_id
+        self.signing_key = signing_key
+        self._leaves: list[bytes] = []
+        self._entries: list[bytes] = []
+
+    def __len__(self) -> int:
+        return len(self._leaves)
+
+    @property
+    def tree_size(self) -> int:
+        return len(self._leaves)
+
+    def root(self) -> bytes:
+        return merkle.root_hash(self._leaves)
+
+    def append(self, document: dict[str, Any]) -> Receipt:
+        """Add a warrant document and return its receipt.
+
+        The entry is the canonical JSON of the document as submitted. Canonicalizing here
+        rather than trusting the submitter's byte stream means two submissions of the same
+        logical warrant produce the same leaf, so a duplicate is visibly a duplicate.
+        """
+        entry = canonical_json(document)
+        self._entries.append(entry)
+        self._leaves.append(merkle.leaf_hash(entry))
+        index = len(self._leaves) - 1
+        return self.receipt_for(index)
+
+    def receipt_for(self, index: int) -> Receipt:
+        size = len(self._leaves)
+        return Receipt(
+            log_id=self.log_id,
+            leaf_index=index,
+            tree_size=size,
+            root_hash=encode_hash(self.root()),
+            inclusion_proof=[encode_hash(h) for h in merkle.inclusion_proof(self._leaves, index)],
+            signed_root=self.signed_tree_head(),
+        )
+
+    def signed_tree_head(self) -> SignedTreeHead:
+        head = SignedTreeHead(
+            log_id=self.log_id,
+            tree_size=len(self._leaves),
+            root_hash=encode_hash(self.root()),
+            timestamp=iso(utc_now()),
+        )
+        head.signature = self.signing_key.sign_multibase(head.signed_bytes())
+        return head
+
+    def consistency_proof(self, first_size: int) -> list[str]:
+        return [encode_hash(h) for h in merkle.consistency_proof(self._leaves, first_size)]
+
+    def entry(self, index: int) -> bytes:
+        return self._entries[index]
+
+
+def verify_receipt(document: dict[str, Any], receipt: Receipt, root: bytes) -> bool:
+    """Check that ``document`` is in a log whose root is ``root``.
+
+    ``root`` is passed in rather than read from the receipt on purpose. The receipt's own
+    root came from the operator, and an operator who forged a warrant would forge a
+    matching root to go with it. Verification is only worth anything against a root the
+    relying party obtained elsewhere -- SPEC.md section 7 step 7.
+    """
+    leaf = merkle.leaf_hash(canonical_json(document))
+    return merkle.verify_inclusion(
+        leaf,
+        receipt.leaf_index,
+        receipt.tree_size,
+        receipt.proof_bytes(),
+        root,
+    )

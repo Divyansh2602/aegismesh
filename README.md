@@ -48,9 +48,15 @@ Trust comes from an append-only Merkle transparency log — the Certificate Tran
 model — not from trusting the issuer.
 
 In the scenario above, the payment API **refuses the call**, because the warrant shows that
-87% of the causal influence on the `destination_account` field came from
-`untrusted-external`, not from the human's mandate, and policy for `payment.execute`
-requires human-attributable intent above a threshold.
+the causal influence on the `destination_account` field came from `untrusted-external`, not
+from the human's mandate, and the bank's policy forbids untrusted content from reaching that
+field. The refusal is not the issuer's opinion: the payment API evaluates *its own* policy
+against evidence it verified for itself, and denies even when the issuer signed a permit.
+
+Attribution is **per argument**, and that is the whole point. The same action is
+simultaneously legitimate in one field and hijacked in another — the human genuinely set the
+amount while the attacker set the destination. Aggregating to the action level averages that
+signal away.
 
 ## Components
 
@@ -72,12 +78,30 @@ See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) and [`docs/SPEC.md`](docs/SPE
 
 **Phase 2 complete** — causal attribution and the evaluation harness.
 
-57 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+**Phase 3 complete** — warrants, transparency log, and enforcement. **The system now
+refuses.** The poisoned invoice runs end to end and the payment API rejects it, producing an
+inclusion proof a third party can verify knowing only two public keys.
+
+263 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
-pip install -e ".[dev]" && pytest -q && python demo/phase1_demo.py && python demo/phase2_eval.py
+pip install -e ".[dev]" && pytest -q \
+  && python demo/phase1_demo.py && python demo/phase2_eval.py && python demo/phase3_demo.py
 ```
+
+Then verify the artifacts as an outside auditor would — no shared secret, no call back to
+the issuer:
+
+```bash
+python tools/verify_warrant.py \
+    results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
+```
+
+The Phase 3 demo runs the attack, then attacks the defence: the operator edits the warrant
+(signature breaks), signs a permit anyway (the payment API denies on its own policy), forks
+the transparency log (an independent witness catches it), and replays a valid warrant onto a
+larger transfer (the arguments binding rejects it).
 
 Measured on the Phase 2 case set (`results/phase2_evaluation.json`):
 
@@ -90,8 +114,11 @@ mean model calls per consequential action  6.9   (worst case 12)
 prove the engine is wired correctly and catch regressions quickly; they are not a
 generalization claim. Phase 4 runs against AgentDojo's 629 security cases.
 
-Phases 1 and 2 **observe and measure**; they do not enforce. The Phase 1 demo ends with the
-attack succeeding, which is the honest baseline Phase 3 has to change.
+They also did not catch everything. Enforcing on this evidence in Phase 3 exposed that a
+field no single ablation moved was being reported as a *uniform* distribution — asserting an
+untrusted share that had never been measured — which denied the legitimate payment. The
+harness could not see it because its flag threshold sat above the fabricated value. See
+`docs/SPEC.md` §4.3.
 
 Continuing this work? Start with [`HANDOFF.md`](HANDOFF.md).
 
@@ -116,6 +143,14 @@ point in a different trust domain than the issuer**.
 Attribution research explains failures *after the fact, inside one system, for debugging*.
 Identity frameworks prove *who*. Neither produces an artifact a downstream service in
 another organization can check *before* honoring the request. That is the gap.
+
+And what it still does not do: a warrant proves an issuer *said* something, not that the
+statement was true. An operator running the issuer can sign a fabricated attribution and
+every verification step passes. The transparency log converts that from undetectable into
+**non-repudiable**, and `replay_ref` makes it *falsifiable* by an auditor who re-runs the
+measurement — but nothing here prevents it. `docs/THREAT_MODEL.md` §6 lists this and eight
+other residual risks, several of them asserted by tests written to pass while the system is
+doing the wrong thing.
 
 ## License
 

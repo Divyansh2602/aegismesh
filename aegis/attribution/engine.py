@@ -23,6 +23,7 @@ from aegis.attribution.gate import ConsequenceGate
 from aegis.attribution.models import (
     NOISE_FLOOR,
     ActionSignature,
+    ArgumentStatus,
     AttributionResult,
     Contributor,
     InfluenceDistribution,
@@ -110,7 +111,14 @@ class AttributionEngine:
 
         result.influence = _aggregate(segment_scores, field=None)
         result.necessity = _aggregate(segment_scores, field=None, use_necessity=True)
-        result.per_argument = {f: _aggregate(segment_scores, field=f) for f in fields}
+        result.argument_status = {f: _field_status(segment_scores, f) for f in fields}
+        result.per_argument = {
+            f: _aggregate_field(segment_scores, f, result.argument_status[f]) for f in fields
+        }
+        result.per_argument_confidence = {
+            f: (result.per_argument[f].confidence() if status == "attributed" else 0.0)
+            for f, status in result.argument_status.items()
+        }
         result.confidence = result.influence.confidence()
         return result
 
@@ -141,6 +149,7 @@ class AttributionEngine:
                     influence=measured.influence,
                     necessity=measured.necessity,
                     per_field=measured.per_field,
+                    comparable=measured.comparable,
                     granularity="segment",
                 )
             )
@@ -196,6 +205,7 @@ class AttributionEngine:
                         influence=measured.influence,
                         necessity=measured.necessity,
                         per_field=measured.per_field,
+                        comparable=measured.comparable,
                         granularity="sentence",
                         sentence=hash_text(sentence),
                     )
@@ -262,6 +272,48 @@ class AttributionEngine:
         # removal stops the action entirely certainly influenced the action.
         influence = max([necessity, *per_field.values()]) if per_field else necessity
         return _Measurement(influence, necessity, per_field, comparable_runs > 0)
+
+
+def _field_status(contributors: list[Contributor], field: str) -> ArgumentStatus:
+    """Classify what the measurement established about one field.
+
+    The distinction this draws was missing until Phase 3 tried to enforce on the evidence,
+    and its absence produced a false denial of a perfectly legitimate payment.
+
+    In the clean invoice case the destination account appears in both the human's mandate
+    and the operator's own ledger. Removing either one leaves the other, so no single
+    ablation changes the value and every class scores zero. The old code normalized that
+    all-zero total into a *uniform* distribution -- which asserts that untrusted external
+    content holds a 0.2 share of causing the destination, a claim no measurement supports
+    and one that trips a policy forbidding any untrusted influence on that field.
+
+    Zero measured influence after a comparable run is evidence of *invariance*. Zero
+    measured influence because every run cancelled the action is an absence of evidence.
+    Only the second is grounds to fail closed.
+    """
+    for contributor in contributors:
+        if contributor.per_field.get(field, 0.0) > NOISE_FLOOR:
+            return "attributed"
+    if any(contributor.comparable for contributor in contributors):
+        return "invariant"
+    return "unknown"
+
+
+def _aggregate_field(
+    contributors: list[Contributor],
+    field: str,
+    status: ArgumentStatus,
+) -> InfluenceDistribution:
+    """Per-field influence, with the all-zero case resolved by ``status``.
+
+    ``invariant`` yields an empty distribution -- every class measurably zero -- rather
+    than the uniform fallback, which would fabricate influence for classes shown to have
+    none. ``unknown`` keeps the uniform fallback, because there the fallback says the true
+    thing: we do not know, and policy should fail closed (control C-16).
+    """
+    if status == "invariant":
+        return InfluenceDistribution(weights={})
+    return _aggregate(contributors, field=field)
 
 
 def _aggregate(

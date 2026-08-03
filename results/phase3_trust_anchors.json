@@ -1,0 +1,8 @@
+{
+  "issuer_verification_method": "did:web:aegis.acme-bank.example#key-1",
+  "issuer_public_key_multibase": "z6MkjHVbv4nvjSuHW9LRVerRgyApXQWBsTLnBVCP8UuprPR2",
+  "log_id": "did:web:log.aegismesh.example",
+  "log_public_key_multibase": "z6Mkotq9s9pFMfvreFiypzcDJLDGDqBHaMHDo1hcvn5MKJro",
+  "witnessed_root": "sha256:9d4de10e2cdf58c390802b4ad81cffaaab10b60e35cbad5b314994f82f704632",
+  "witnessed_tree_size": 4
+}

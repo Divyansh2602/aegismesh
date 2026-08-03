@@ -131,20 +131,54 @@ commercial endpoints and is a poor proxy for causal influence.
 **Multi-granularity (control C-15):** ablation runs at segment, sentence, and span level.
 Redundant-encoding attacks that survive segment-level ablation frequently fail at span level.
 
-### 3.2 Confidence
+### 3.2 Necessity is not value-causation
 
-Ablation may be inconclusive — for example when the action is invariant to every ablation,
-implying either strong redundancy or a decision independent of context.
+Removing the human's mandate typically cancels the action outright. That proves the mandate
+was *necessary* for the action to occur, and says nothing about which account the money went
+to — in the counterfactual there was no account to compare.
+
+Per-field influence is therefore measured **only over ablations where the same tool was
+still called**, i.e. conditioned on the action surviving. Cancellations are recorded
+separately as `necessity`. The two are never summed. Scoring cancellation as field-level
+influence made the human mandate look like the cause of an attacker-supplied destination,
+which is precisely backwards.
+
+### 3.3 Three outcomes per field, not two
+
+An all-zero field score has two incompatible causes, and collapsing them is a defect:
+
+- **`invariant`** — comparable runs happened and none changed the value. The field is
+  overdetermined (several sources name the same value) or independent of context.
+  Every class is *measured* zero.
+- **`unknown`** — every ablation cancelled the action, so no comparable run exists. Nothing
+  was measured at all.
+
+Only `unknown` is grounds to fail closed. Normalizing an `invariant` field's zeros into a
+uniform distribution fabricates influence for classes shown to have none — see §4.3.
+
+A known consequence of §3.2 that this exposes: **a field whose only determining segment is
+also the segment whose removal cancels the action can never be attributed at segment or
+sentence granularity.** The amount in the invoice scenario is the worked example — it
+appears only in the human's mandate, and removing that mandate removes the transfer intent
+along with it, so no comparable counterfactual exists. Separating the two would need
+span-level ablation (control C-15), which is specified and not yet implemented.
+
+### 3.4 Confidence
 
 ```
 confidence = 1 - H(influence_distribution) / log|classes|
 ```
 
+Reported at both action level and per argument. **The per-argument number is the meaningful
+one.** An action-level figure averages away the case this system exists for: an action
+simultaneously legitimate in one field and hijacked in another scores near-uniform overall
+while the hijacked field is attributed with certainty.
+
 Low confidence is **not** treated as "safe". Per control C-16, policy may require a minimum
 confidence, so an unattributable action **fails closed**. This is what makes attribution
 evasion (ADV-5) yield a denial rather than a bypass.
 
-### 3.3 Cost gate
+### 3.5 Cost gate
 
 Ablation costs *O(|segments| × n)* model calls, so it is gated:
 
@@ -221,19 +255,43 @@ is deliberate: it interoperates with the emerging CoSAI/DID/KYA-OS identity stac
       "granularity": ["segment", "sentence"],
       "resamples": 3,
       "model_ref": "groq/llama-3.3-70b@2026-07",
+
+      // Every score is a fixed-precision STRING. See 4.2 -- this is a wire-format
+      // requirement, not a serialization detail.
       "influence": {                        // action-level, normalized
-        "P0": 0.09, "P1": 0.02, "P2": 0.02, "P3": 0.87, "P4": 0.00
+        "P0": "0.0900", "P1": "0.0200", "P2": "0.0200", "P3": "0.8700"
+      },
+      "necessity": {                        // which classes the action *required*
+        "P0": "1.0000"
       },
       "per_argument": {
-        "amount":              { "P0": 0.71, "P3": 0.29 },
-        "destination_account": { "P0": 0.09, "P3": 0.87, "P2": 0.04 }
+        "amount":              {},          // empty: see argument_status below
+        "destination_account": { "P0": "0.0900", "P2": "0.0400", "P3": "0.8700" }
+      },
+      "argument_status": {
+        "amount":              "invariant",
+        "destination_account": "attributed"
+      },
+      "per_argument_confidence": {
+        "amount":              "0.0000",
+        "destination_account": "0.8100"
       },
       "top_contributors": [
         { "segment_id": "seg_01J8...", "class": "P3",
           "origin": "mcp://vendor.example/invoice_reader",
-          "influence": 0.62, "excerpt_hash": "sha256:c0a1..." }
+          "influence": "0.6200", "excerpt_hash": "sha256:c0a1...",
+          "granularity": "sentence" }
       ],
-      "confidence": 0.81
+      "confidence": "0.8100",
+
+      // What an auditor needs to re-run the measurement and check it (4.3).
+      "replay_ref": {
+        "trace_hash": "sha256:c035...",
+        "segment_hashes": ["sha256:1a2b...", "sha256:9f2a..."],
+        "model_ref": "groq/llama-3.3-70b@2026-07",
+        "method_version": "0.1.0",
+        "seed": 7
+      }
     },
 
     "policy_decision": {
@@ -273,6 +331,79 @@ is deliberate: it interoperates with the emerging CoSAI/DID/KYA-OS identity stac
   worked, and suppressing them is exactly what ADV-4 would want to do.
 - **`validUntil` is short** because a warrant authorizes one action, now — not a session.
 
+### 4.2 Score encoding — normative
+
+Version 0.1 of this document showed scores as JSON numbers. That was wrong and is corrected
+here. **Every score in a warrant is a string at a fixed quantum**, and the rules below are
+part of the wire format: two implementations that both skip one of them will still disagree,
+and disagreement means an honest warrant reads as a forgery.
+
+| Rule | Value |
+| --- | --- |
+| Quantum | `0.0001` — four decimal places, always present |
+| Rounding mode | **`ROUND_HALF_EVEN`** |
+| Order of operations | **normalize first, then round** |
+| Sum of a rounded distribution | **not required to be `1.0000`** |
+| Consumer type | arbitrary-precision decimal — **never `float`** |
+
+*Why strings.* The warrant's whole purpose is that a third party in another language
+recomputes our bytes and checks an Ed25519 signature over them. JCS mandates ECMAScript
+`Number::toString`; a naive implementation emits its host language's float repr. Encoding
+scores we control as decimal strings removes them from that argument entirely.
+
+*Why normalize before rounding.* Rounding first lets the normalizing divisor differ between
+implementations, which moves every value in the distribution.
+
+*Why the sum is not checked.* Four independent roundings routinely land on `0.9999` or
+`1.0001`. A verifier that demands an exact sum rejects honest warrants — this is an easy
+check to add in good faith and it must not be added.
+
+*Why decimal at the consumer.* Parsing back to `float` at the policy enforcement point
+reintroduces the same class of error one layer below, where it presents as a comparison
+being subtly wrong rather than as a serialization mismatch.
+
+Numbers that are *not* scores — `resamples`, `hop`, `leaf_index`, and tool-call arguments —
+remain JSON numbers, because they arrive from elsewhere and we do not control their form.
+For those, `common/hashing.py` implements RFC 8785 number serialization properly.
+
+### 4.3 `argument_status` — normative
+
+`per_argument` alone cannot distinguish two very different findings, because both appear as
+an absence of weight:
+
+| Status | Meaning | Policy consequence |
+| --- | --- | --- |
+| `attributed` | Some class measurably set this value. | The distribution is meaningful. |
+| `invariant` | Comparable ablations ran and none changed the value. The field is overdetermined or context-independent; no class was pivotal. | Every class is *measured* zero. Not grounds to fail closed. |
+| `unknown` | Every ablation cancelled the action, so no comparable run exists. Nothing was measured. | **Fail closed** (control C-16). |
+
+Conflating `invariant` with `unknown` is not a theoretical concern: it denied the
+legitimate invoice payment in the Phase 3 demo. A destination account named by both the
+human's mandate and the operator's own ledger survives the removal of either, so
+leave-one-out measures no pivotal cause — and encoding that as a *uniform* distribution
+asserts a `0.2` untrusted share that no measurement supports, tripping any policy that
+forbids untrusted influence on that field.
+
+Redundancy is the normal case for legitimate actions. A design that cannot express it
+fails asset A6.
+
+### 4.4 `replay_ref`
+
+The transparency log proves an issuer *said* something. It does not prove the statement was
+true, and ADV-4 runs the issuer. `replay_ref` commits, under the signature, to the exact
+classified context the attribution was measured over — the ordered segment hashes, the
+trace hash, the model reference, and the method version — so that an auditor granted the
+underlying trace can re-run the ablation and compare. That does not prevent a lie; it makes
+one **falsifiable**, which is the strongest property available short of attested execution.
+
+The fields are emitted from Phase 3 even though the re-run verifier is Phase 4 work,
+because they sit under the signature: adding them later would invalidate every warrant
+already issued or fork the format.
+
+`seed` is recorded, not relied upon. Many hosted APIs accept a seed without honouring it,
+so reproducibility rests on `model_ref` pinning — and even that degrades across provider
+version drift.
+
 ---
 
 ## 5. Transparency log
@@ -304,9 +435,29 @@ Returned on submission; the relying party requires it.
 
 - **Inclusion** — this warrant is in the log at this root.
 - **Consistency** — root *R₂* at size *n₂* is an append-only extension of root *R₁* at size
-  *n₁*. This is what makes suppression and rewriting detectable (control C-13).
+  *n₁*. This is what makes **rewriting** detectable (control C-13).
 
-### 5.3 Optional public anchoring
+**Consistency proofs detect rewriting, not omission.** An entry that was never submitted
+leaves no gap to find; the tree is perfectly consistent without it. For *permits* this is
+harmless, because a relying party will not honour an action without an inclusion proof, so
+an unlogged permit is unusable. For *denials* it is real: a suppressed denial is simply
+invisible, and what is lost is evidence rather than control.
+
+### 5.3 Witnesses
+
+A witness is a party in a different trust domain that holds the last signed tree head it
+accepted and verifies a consistency proof before accepting the next one. It is what makes
+verification step 7 meaningful; without one, nothing distinguishes this design from an
+internal audit log.
+
+The reference implementation runs **one** witness, which is enough to demonstrate the
+mechanism and not enough to deploy. A single witness detects a log that forks between it and
+someone else. It does nothing about a witness that colludes with the operator, because then
+both sides of the comparison are the same party. The production answer is *N* independent
+witnesses gossiping heads, so a fork must fool all of them at once. That is out of scope
+here and is stated in THREAT_MODEL.md §6 as residual risk rather than assumed away.
+
+### 5.4 Optional public anchoring
 
 Merkle roots may be periodically published to a public chain (Polygon) purely for
 third-party timestamping. Records are never published — only roots. See `THREAT_MODEL.md` §5
@@ -323,19 +474,27 @@ package aegis.treasury
 
 default decision := "deny"
 
-# High-value transfers require genuine human causation on the destination field.
-deny contains "require_human_intent_on_destination" if {
-    input.action.operation == "execute_transfer"
-    amount_exceeds(10000)
-    input.attribution.per_argument.destination_account.P0 < 0.70
-}
-
 # Untrusted external content must not touch where the money goes, at all.
 deny contains "no_untrusted_influence_on_destination" if {
     input.attribution.per_argument.destination_account.P3 > 0.05
 }
 
-# Unattributable actions fail closed  (control C-16).
+# Nothing measurable about the destination at all -- fail closed  (control C-16).
+deny contains "destination_not_attributable" if {
+    input.action.operation == "execute_transfer"
+    input.attribution.argument_status.destination_account == "unknown"
+}
+
+# A high-value destination attributed to something other than the human principal.
+# The status guard is load-bearing -- see below.
+deny contains "require_human_intent_on_destination" if {
+    input.action.operation == "execute_transfer"
+    amount_exceeds(10000)
+    input.attribution.argument_status.destination_account == "attributed"
+    input.attribution.per_argument.destination_account.P0 < 0.70
+}
+
+# Coarse floor on action-level attribution confidence.
 deny contains "attribution_confidence_too_low" if {
     input.attribution.confidence < 0.60
 }
@@ -348,8 +507,45 @@ deny contains "chain_too_deep" if {
 decision := "permit" if { count(deny) == 0 }
 ```
 
+### 6.1 The guard on `require_human_intent_on_destination`
+
+Version 0.1 of this document wrote that rule without the `argument_status` guard, as a bare
+threshold on `P0`. Implementing it in Phase 3 denied the *legitimate* invoice payment.
+
+In the clean case the destination account appears in both the human's mandate and Acme's
+own ledger. Removing either leaves the other, so no single ablation changes the value and
+`P0` is not `0.70` — it is zero, because nothing was pivotal. The rule as originally written
+demands positive human causation for a value that is legitimately overdetermined, which no
+correctly attributed redundant field can ever satisfy.
+
+The corrected rule applies when the field *was* attributed to some class and that class was
+not the human. Fields nothing was pivotal for are handled by
+`no_untrusted_influence_on_destination` and `destination_not_attributable` instead.
+
+This is asset A6 in practice: a control that blocks legitimate work gets switched off, and
+then protects nothing.
+
+### 6.2 Evaluation semantics — normative
+
+- **Conditions are evaluated in order and short-circuit.** Order is part of a rule's
+  meaning: guards come first, so a rule that does not apply never reaches its later lookups.
+- **A condition that cannot be resolved makes its rule fire.** A rule that applies but
+  cannot be evaluated denies. Skipping it would let malformed input turn a control off.
+- **Missing numeric paths under `attribution.influence`, `attribution.necessity`,
+  `attribution.per_argument` and `attribution.per_argument_confidence` resolve to zero**,
+  because a distribution omits classes below the noise floor — an absent class is the
+  encoding of "caused nothing". `attribution.argument_status` is deliberately excluded:
+  a missing status is a genuine unknown.
+- **Comparisons are decimal.** Never `float`. See §4.2.
+- **Rules are data, not code.** Conditions are declared as path/operator/value triples so
+  that `policy_hash` covers the entire policy. A rule implemented as a callable would make
+  the hash a claim about a name while the behaviour lived in a function body nobody
+  committed to.
+
 Policies are versioned and hashed; the hash is recorded in the warrant so that any decision
-can be replayed against the exact policy that produced it.
+can be replayed against the exact policy that produced it. The hash covers the rule set, the
+thresholds, the default decision and the **engine version** — but not the evaluator's source.
+A policy hash identifies the rules, not the code that ran them.
 
 ---
 
@@ -366,7 +562,12 @@ Executed by `aegis-pep` before honoring an action. Any failure ⇒ reject.
 6. **Check nonce** against a replay cache covering at least the validity window.
 7. **Verify log inclusion**: check the inclusion proof against a `root_hash` that the relying
    party obtained *independently* — from its own witness or a gossip peer, never from the
-   operator. **This step is what defends against ADV-4 and is non-optional.**
+   operator. **This step is what defends against ADV-4 and is non-optional.** Without a
+   party in another trust domain holding that root, the operator supplies the warrant, the
+   receipt, *and* the root to check it against, and the exercise proves only that the
+   operator is internally consistent — which a forger would also be. A receipt whose
+   `tree_size` exceeds what the witness has accepted is rejected: an operator must not be
+   able to get ahead of its witness and settle up later.
 8. **Verify delegation chain**: each hop's scope is a subset of the previous hop's
    (attenuation), the chain terminates at the named principal, and every agent manifest hash
    is known.
@@ -405,11 +606,26 @@ POST /v1/verify                       { warrant, receipt, arguments } -> decisio
 
 1. What is θ (monotonicity threshold) in practice? Sweep in Phase 4.
 2. Does span-level ablation actually defeat redundant-encoding attacks, or only raise cost?
+   It is now also the only route to attributing a field entangled with the transfer intent
+   in the same segment — see §3.3.
 3. Can the consequential-action classifier itself be attacked into classifying a payment as
    non-consequential? **Probable. Must be tested — it is a single point of bypass.**
 4. What is the real cost per consequential action, and is it acceptable?
 5. Does a neutral placeholder control for position effects better than deletion, or introduce
    its own bias?
+6. `invariant` currently means "no single segment was pivotal". It does not distinguish
+   *benign* redundancy (the human and the ledger agree) from *adversarial* redundancy — an
+   attacker who plants the same value twice so that no single ablation moves it. Class-level
+   ablation, removing every segment of one class at once, would separate them at a cost of
+   |classes| extra calls. Untested, and it is the most likely place an ADV-5 evasion lives.
+7. Does per-argument confidence carry policy weight that action-level confidence does not?
+   The action-level floor of 0.60 fires on a legitimate action split evenly between two
+   trusted classes, which looks like a false-positive generator waiting for a real workload.
+8. Sentence-level ablations are measured but do not feed `per_argument` or
+   `argument_status`, which are computed from segment-level results only. A field
+   attributable at sentence granularity but not segment granularity is therefore reported
+   as `invariant`. Whether folding them in improves accuracy or just adds variance is a
+   Phase 4 measurement.
 
 ---
 

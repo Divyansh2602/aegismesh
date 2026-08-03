@@ -10,6 +10,7 @@ from aegis.attribution.engine import AttributionEngine
 from aegis.attribution.gate import ConsequenceGate
 from aegis.attribution.models import (
     ActionSignature,
+    ArgumentStatus,
     AttributionResult,
     Contributor,
     InfluenceDistribution,
@@ -17,6 +18,7 @@ from aegis.attribution.models import (
 
 __all__ = [
     "ActionSignature",
+    "ArgumentStatus",
     "AttributionEngine",
     "AttributionResult",
     "ConsequenceGate",
