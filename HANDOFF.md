@@ -12,7 +12,8 @@ the only document that carries what the code cannot tell you: why each decision 
 it did, which limitations are deliberate, what is stale, and what to build next. The others
 describe the system; this one describes the *project*.
 
-1. **This file** — status, the eleven design decisions, Phase 5's scope, conventions
+1. **This file** — status, the eleven design decisions, the product target Phases 5–8 build
+   toward, and the conventions that must not regress
 2. [`README.md`](README.md) — the pitch and the honest novelty positioning
 3. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — adversaries, controls, twelve residual
    risks, OWASP + EU AI Act mapping
@@ -83,8 +84,10 @@ nothing.
 | 2 — Causal attribution | **Done** | `aegis/attribution/`, `aegis/evaluation/` |
 | 3 — Warrants, log, enforcement | **Done** | `aegis/warrant/`, `aegis/log/`, `aegis/policy/`, `aegis/pep/`, `tools/verify_warrant.py` |
 | 4 — Adversarial evaluation | **Done** | `aegis/evaluation/{agentdojo,surrogate,phase4,theta}.py`, `aegis/audit/`, `aegis/provenance/monotonicity.py` |
-| 5 — Console & compliance export | **Next** | Next.js |
-| 6 — Paper, patent, standards | Pending | — |
+| 5 — Public API | **Next** | the HTTP surface that makes the whole pipeline drivable, plus the abuse controls opening it requires |
+| 6 — Console | Pending | Next.js + TypeScript, responsive, interactive |
+| 7 — Ship it | Pending | containers, CI, hosting, the public launch |
+| 8 — Article 12, paper, patent, standards | Pending | — |
 
 ### Phase 4 measured results (`results/phase4_agentdojo.json`)
 
@@ -378,80 +381,174 @@ Decisions worth defending:
 
 ---
 
-## Phase 5 — what to build next
+## The product target — stated by Divyansh, 2026-08-06
 
-**Target chosen 2026-08-06: a live demo people can click.** Not a pilot, not production.
-That decision is what makes the rest of this section short, so it is worth stating why.
+> "I want a full frontend and backend, everything working. An interviewer or any person
+> using GitHub should be able to fully use the functionality, and it should be interactive
+> and responsive and legitimate."
 
-**Definition of done:** a stranger opens a URL, runs the poisoned-invoice scenario, watches
-the payment API refuse it, then attacks the system themselves and sees two of those attacks
-succeed.
+Not a screenshot tour and not a canned walkthrough. Someone lands on a URL, drives the real
+pipeline with their own input, attacks it, and leaves convinced. **Phases 5–7 exist to
+deliver that**; Phase 8 is the research tail.
 
-### Why the deployment blockers mostly do not apply
+Read "legitimate" as the binding constraint. Every number on that site must come from
+`aegis` executing, every signature must verify, every proof must check. The moment any
+screen renders a plausible-looking mock, the site is arguing against the thesis of the
+project it is demonstrating.
 
-Surveyed against the code, not assumed. Everything below is real and none of it blocks a
-demo:
+### The single most convincing thing this can offer
 
-| Blocker | Where | Blocks a demo? |
-| --- | --- | --- |
-| Nothing persists | `log/log.py` `_leaves`/`_entries`, `pep/replay.py` `_seen`, proxy trace store — all in-memory | **No.** A demo that resets per session is honest, and the page should say so |
-| Keys from a fixed string | every demo calls `SigningKey.from_seed(...)` | **No.** Deterministic keys make the demo reproducible |
-| Real-model cost unmeasured | 35.6–41 calls/action, all against the surrogate | **No.** The surrogate is the point here |
-| Single witness, per-PEP replay cache | residual risks 8 and 9 | **No.** The Phase 3 demo already shows the witness catching a fork |
-| ADV-7 gate evasion open | `attribution/gate.py` read-verb branch | **No** — arguably a feature to show off |
-| No CI, container or manifests | repo root | **Yes.** This is the actual work |
+**Artifacts downloaded from the live site must verify offline on the visitor's own laptop.**
+A recruiter downloads `warrant.json`, `receipt.json` and `trust_anchors.json`, runs
+`python tools/verify_warrant.py` locally with no network and no shared secret, and gets 6/6.
+That is the entire third-party-verifiability claim demonstrated rather than asserted, by a
+stranger who trusts nobody involved. Build toward it — it is the thing nothing else in this
+space can show.
 
-**For a pilot or production target every one of those becomes blocking, and the durable log
-is the worst of them:** a transparency log that can silently restart empty voids its own
-tamper-evidence claim, which is the whole product. Do not let a demo's success blur that.
+### Two earlier assessments that this target reverses
 
-The one genuine advantage: everything runs offline with no API key, so the demo has no
-secrets to manage, no per-visitor cost, and cannot be abused to burn anyone's budget. That
-falls directly out of the Phase 1 decision to bundle a mock model.
+Both were recorded in this file on the same day under a narrower target. Stated plainly so
+the next session does not follow the stale advice:
+
+1. **"Drop Next.js for server-rendered HTML" is withdrawn.** That was correct for a
+   click-through demo with no interactivity. The target now *is* interactivity — bring your
+   own injection, watch ablations stream, inspect evidence, re-run attacks — so a real
+   frontend framework is justified on technical grounds rather than résumé ones.
+2. **"Persistence does not block a demo" is withdrawn for the log specifically.** A
+   transparency log's whole value is being append-only *over time*. A log that resets when
+   the host sleeps demonstrates nothing, and a shared log that visibly grows across visitors
+   — with a consistency proof between two visits — is the most compelling artifact
+   available. `TransparencyLog` needs durable storage before launch. The replay cache and
+   trace store can stay in memory.
+
+---
+
+## Phase 5 — the public API
+
+**Goal:** make every capability drivable over HTTP by something that is not Python, and add
+the controls that opening it to strangers requires.
+
+**Definition of done:** the entire Phase 3 and Phase 4 demo output is reproducible through
+HTTP calls alone, and a hostile visitor cannot take the service down.
 
 ### Build order
 
-1. **A read-only console** over the artifacts that already exist. Provenance-classified
-   context coloured P0–P4; per-argument attribution rendering `attributed` / `invariant` /
-   `unknown` as genuinely distinct states; the signed warrant; the Merkle inclusion proof;
-   the PEP decision with the rules that fired. The three-way per-field status is the thing a
-   UI can express that a number cannot — see design decision 6.
-2. **"Attack it yourself" buttons** — the four Phase 3 scenes and the four Phase 4 attacks,
-   run live. **The two that succeed stay in, prominently.** That is the most interesting
-   thing on the site and the reason anyone will trust the rest of it.
-3. **The replay verdict as a first-class view.** `consistent` / `contradicted` /
-   `inconclusive` with the reason attached — the only screen where the operator is the
-   subject rather than the author.
-4. **Dockerfile, CI, host.** Railway or Fly take a Python container directly; free tier is
-   ample because there is no inference cost.
+1. **`aegis/api/`** — a FastAPI app distinct from `aegis/proxy/`. The proxy intercepts an
+   agent; this serves a UI. Conflating them would put a public attack surface on the
+   interception path.
+2. **Endpoints**, roughly: submit a scenario (preset or user-authored) → classify → attribute
+   → issue → log → enforce, each step inspectable; fetch warrant, receipt, inclusion and
+   consistency proofs; run one named attack scene; run the replay verifier; download the
+   three auditor artifacts as files.
+3. **Streaming.** Attribution issues 35–40 model calls per action and takes seconds.
+   Server-sent events emitting each ablation as it completes turn dead waiting into the most
+   interesting screen on the site — the visitor *watches* counterfactuals being tested.
+4. **Abuse controls, and name what they are.** Per-IP rate limits, request size caps, a
+   session-scoped budget, and the engine's existing `max_model_calls`.
 
-### Two decisions taken while scoping this
+   **Opening this to the public re-instantiates threat T12 from our own threat model:**
+   denial of service via attribution cost. Ablation is O(segments) model calls, so a visitor
+   pasting a large context is a cost amplifier. Control C-18 already exists in the engine —
+   the API must actually use it, and the site should say that the limit visitors hit is the
+   same control the design specifies. That is a demonstration of the threat model, not a
+   workaround for it.
+5. **Session isolation.** Each visitor gets their own issuer keys, policy and PEP state, but
+   **shares the transparency log** — see below.
 
-- **Drop the Next.js plan for a single FastAPI service rendering server-side HTML.** No build
-  step, one runtime, one container. Next.js buys interactivity this demo does not need and
-  doubles the deployment surface. Wanting it for the résumé line is a legitimate reason to
-  overrule this — it is just not a technical one. *Not yet confirmed by Divyansh.*
-- **The console must import `aegis` and drive the real code paths.** A page that re-renders a
-  simulation of the pipeline would be worthless and, on a project whose entire subject is
-  verifiable evidence, actively dishonest.
+### Decisions to make deliberately
 
-### Deferred past Phase 5, still unscheduled
+- **Shared log, per-session everything else.** A shared append-only log lets a visitor see a
+  real tree grown from other people's actions, and take a consistency proof between two
+  visits. It is also shared mutable state reachable by strangers, so entries must be
+  size-capped and no submitted content may ever be rendered back to another visitor
+  unescaped.
+- **Surrogate only, labelled.** No real-model path in the public API: it needs a key, costs
+  money per visitor, and would make the site abusable as a free LLM proxy. The page must say
+  which model produced the numbers, in the same words `demo/phase4_eval.py` uses.
+- **Read-only by construction.** Nothing a visitor submits may change policy, keys, or
+  another session's state.
+
+---
+
+## Phase 6 — the console
+
+**Goal:** the frontend Divyansh described — full, interactive, responsive, legitimate.
+
+**Definition of done:** a non-technical interviewer reaches "the payment was refused, and
+here is which sentence caused it" without reading JSON or asking a question. A technical one
+reaches "I attacked it myself, two of my attacks worked, and it told me so."
+
+### Screens
+
+1. **The scenario runner.** Pick a preset (poisoned invoice, clean payment, an AgentDojo
+   case) *or write your own context*. Bring-your-own-injection is the feature that makes this
+   a product rather than a slideshow.
+2. **The pipeline, live.** Context coloured by provenance class P0–P4 with the classification
+   reason on hover; ablations streaming in; the action assembling.
+3. **The evidence panel.** Per-argument attribution where `attributed` / `invariant` /
+   `unknown` are **three visually distinct states, never one number**. Flattening them is
+   design decision 6, and undoing it in the UI would undo the project's sharpest finding.
+   Show `per_argument_redundancy` beside it.
+4. **The decision.** The PEP's verdict, the rules that fired, and the warrant — with the
+   issuer's own decision shown as a *claim*, visibly not the authority.
+5. **The attack lab.** All eight scenes as buttons, plus custom injections. **The two that
+   succeed are the point**; render them as prominently as the ones that fail.
+6. **The auditor view.** Merkle tree visual, inclusion proof, witness state, the replay
+   verdict with its reason — and the download button for the three artifacts.
+
+### Stack
+
+Next.js App Router + TypeScript + Tailwind + shadcn/ui. Responsive is a stated requirement,
+so mobile is a test case rather than an afterthought. Frontend on Vercel, backend container
+on Railway or Fly.
+
+---
+
+## Phase 7 — ship it
+
+**Definition of done:** the URL is in the README, it survives a stranger, and it stays up.
+
+1. Dockerfile for the API; Vercel project for the console.
+2. **CI**: `ruff` + `pytest` on every push. The repo has none, and a public project whose
+   selling point is verifiability needs a green check.
+3. Durable storage for the transparency log. SQLite is sufficient and keeps the RFC 6962
+   implementation readable, which was the point of hand-writing it.
+4. Health checks, structured logs, an error page that does not leak stack traces.
+5. Custom domain, and the demo URL at the top of the README.
+
+---
+
+## Phase 8 — Article 12, paper, patent, standards
+
+Unchanged in substance, moved back by the three phases above.
 
 - **EU AI Act Article 12 export** — map warrant fields onto the record-keeping obligations,
   and state which obligations it does *not* discharge.
-- **Real-model measurement** (open question 9). The adapter already runs against
-  `HttpModelClient`; it needs a key and a budget. Single biggest credibility upgrade
-  available to every number in `results/`.
-- **Classifier adversarial evaluation** (residual risk 1). Phase 4 measured attribution
+- **Real-model measurement** (open question 9) — the adapter already runs against
+  `HttpModelClient`; it needs a key and a budget. Single biggest credibility upgrade to every
+  number in `results/`. Run it offline and publish the numbers; do not wire it into the
+  public site.
+- **Classifier adversarial evaluation** (residual risk 1) — Phase 4 measured attribution
   *given* correct classification. Nobody has attacked the P0 boundary.
+- Paper, patent decision (see the licence note — Apache-2.0 §3 already grants users a patent
+  licence over claims this code necessarily infringes), standards engagement.
 
-### Watch out for
+### Watch out for, across all of Phases 5–8
 
 - The Phase 2 case set must keep passing; it is the fast regression signal
 - Cost is a headline result, not a footnote — an accurate method nobody can afford does
   not ship
 - Report evasions that work. THREAT_MODEL §6 is the format, and it now has twelve entries
-- A console that renders `invariant` and `unknown` the same way undoes design decision 6
+- **A console that renders `invariant` and `unknown` the same way undoes design decision 6.**
+  The single easiest way to destroy this project's best finding is a progress bar
+- **Never render a mock.** If a screen cannot yet be driven by real `aegis` output, ship the
+  screen empty with an honest "not built" rather than filled with something plausible. On a
+  project about verifiable evidence, a fake screenshot is not a placeholder, it is a
+  counterexample
+- The public site must state which model produced its numbers. Every caveat in
+  `demo/phase4_eval.py`'s closing section applies verbatim to anything the UI displays
+- Opening the API to strangers turns attribution cost into threat T12. Use control C-18
+  rather than inventing a new limiter, and say so in the UI
 
 ---
 
