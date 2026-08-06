@@ -243,6 +243,8 @@ def replay_ref(
         model_ref=attribution.model_ref or trace.model,
         method_version=attribution.method_version,
         seed=seed,
+        mode=attribution.mode,
+        drilldown_threshold=format_score(attribution.drilldown_threshold),
     )
 
 

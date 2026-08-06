@@ -23,7 +23,10 @@ What it verifies, and what it does not:
 It does **not** verify that the attribution inside the warrant is true. Nothing here can:
 the issuer measured it and the issuer signed it. What the log adds is non-repudiation --
 the claim is permanently and verifiably theirs. Checking the claim itself means re-running
-the ablation from ``attribution.replay_ref`` against a disclosed trace, which is Phase 4.
+the ablation from ``attribution.replay_ref`` against a disclosed trace, which is
+``aegis/audit/replay.py``. That is a strictly larger disclosure -- the auditor needs the
+context, not just the credential -- so it stays a separate tool rather than being folded
+in here.
 """
 
 from __future__ import annotations
@@ -122,8 +125,15 @@ def verify(warrant_path: Path, receipt_path: Path, anchors_path: Path) -> int:
     if replay:
         print(f"\n  replay_ref commits to {len(replay.get('segment_hashes', []))} segments")
         print(f"  trace_hash {replay.get('trace_hash')}")
+        print(f"  measured with mode={replay.get('mode') or '(not committed)'} "
+              f"theta_drilldown={replay.get('drilldown_threshold') or '(not committed)'}")
         print("  Re-running the ablation against those segments is how the numbers above")
-        print("  become checkable rather than merely attributable. That verifier is Phase 4.")
+        print("  become checkable rather than merely attributable. An auditor granted the")
+        print("  trace does that with aegis.audit.replay; this tool does not, because it")
+        print("  deliberately holds nothing but two public keys and a root hash.")
+        if not replay.get("mode"):
+            print("  NOTE: this warrant predates the settings commitment and cannot be")
+            print("  replayed -- what it commits to does not determine the measurement.")
 
     passed = all(results)
     print(f"\n{'VERIFIED' if passed else 'VERIFICATION FAILED'}: "

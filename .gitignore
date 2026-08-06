@@ -6,9 +6,33 @@ venv/
 env/
 .pytest_cache/
 .ruff_cache/
+# Secrets and credentials. Nothing in this repo needs an API key -- everything runs
+# offline against a bundled deterministic model -- so anything matching these patterns
+# arriving here is an accident, and the ignore list is the cheap half of not publishing it.
 .env
-.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+credentials.json
+service-account*.json
+secrets.json
+.secrets/
+*.secret
+.aws/
+.gcloud/
+id_rsa*
+id_ed25519*
 *.log
+
+# Local agent/editor state
+.remember/
+.claude/
+.vscode/
+.idea/
 dist/
 build/
 node_modules/

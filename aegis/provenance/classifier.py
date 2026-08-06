@@ -17,7 +17,7 @@ P0. Everything else defaults to untrusted (classes.DEFAULT_CLASS).
 from __future__ import annotations
 
 from aegis.common.hashing import hash_text
-from aegis.provenance.classes import DEFAULT_CLASS, ProvenanceClass, min_trust
+from aegis.provenance.classes import DEFAULT_CLASS, ProvenanceClass
 from aegis.provenance.models import (
     ContextTrace,
     Locator,
@@ -26,6 +26,12 @@ from aegis.provenance.models import (
     SegmentSource,
     Span,
     ToolLocator,
+)
+from aegis.provenance.monotonicity import (
+    DEFAULT_THETA,
+    ParentInfluence,
+    all_parents,
+    derive_class,
 )
 from aegis.provenance.registry import MandateContext, ToolRegistry
 
@@ -39,9 +45,21 @@ class ContextClassifier:
         self,
         registry: ToolRegistry | None = None,
         mandate: MandateContext | None = None,
+        theta: float = DEFAULT_THETA,
+        parent_influence: ParentInfluence = all_parents,
     ) -> None:
         self.registry = registry or ToolRegistry()
         self.mandate = mandate
+        self.theta = theta
+        self.parent_influence = parent_influence
+        """How much a preceding segment must have shaped an agent's output to count as its
+        causal parent (SPEC.md section 2.2).
+
+        Defaults to ``all_parents``, under which every preceding segment counts and theta
+        has no effect -- Phase 1's conservative approximation, unchanged. Passing
+        ``lexical_overlap`` makes theta live. See ``provenance/monotonicity.py`` for why
+        the specification's causal quantity is not what either estimator computes.
+        """
 
     # ---------------------------------------------------------------- public
 
@@ -239,11 +257,17 @@ class ContextClassifier:
     ):
         """Agent output inherits the least trust among its causal parents (control C-9).
 
-        Phase 1 approximates causal parents as *every preceding segment*, which is the
-        conservative choice: it can only over-restrict, never over-trust. Phase 2 replaces
-        this with measured causal parents from the ablation engine, at which point a
-        summary of trusted material stops being dragged down by unrelated untrusted
-        context sitting elsewhere in the window.
+        Which preceding segments count as parents is decided by ``parent_influence`` and
+        ``theta``. Under the default estimator every one of them does, which is Phase 1's
+        approximation and is conservative by construction: it can only over-restrict. Under
+        a real estimate, a summary of trusted material stops being dragged down by
+        unrelated untrusted context sitting elsewhere in the window -- and starts being
+        able to miss laundering it cannot see. ``provenance/monotonicity.py`` sets out that
+        trade and ``evaluation/theta.py`` measures it.
+
+        Only the surviving parents are recorded. A segment listing every preceding id
+        cannot answer "which untrusted thing reached this?", which is the question an
+        investigator actually has.
         """
         rendered = content
         for call in message.get("tool_calls", []) or []:
@@ -253,15 +277,18 @@ class ContextClassifier:
         if not rendered.strip():
             return
 
-        parent_ids = [s.segment_id for s in trace.segments]
-        derived = min_trust([s.cls for s in trace.segments])
+        candidates = [(s.cls, s.text) for s in trace.segments]
+        derived, surviving = derive_class(
+            candidates, rendered, theta=self.theta, influence=self.parent_influence
+        )
+        parent_ids = [trace.segments[index].segment_id for index in surviving]
 
         segment = self._simple(
             rendered,
             derived,
             "agent_message",
-            f"agent output; monotonicity rule over {len(parent_ids)} preceding segment(s) "
-            f"yields {derived.value}",
+            f"agent output; monotonicity rule over {len(parent_ids)} causal parent(s) of "
+            f"{len(candidates)} candidate(s) at theta={self.theta} yields {derived.value}",
             MessageLocator(message_index=message_index, whole_message=True),
         )
         segment.parent_segments = parent_ids

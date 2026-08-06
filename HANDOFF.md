@@ -1,7 +1,7 @@
 # AegisMesh — Session Handoff
 
-**Written:** 2026-08-04 · **For:** continuing in the VS Code Claude extension
-**Repo:** `C:\Users\Divyansh Gupta\Documents\everything` (local git, no remote — nothing pushed)
+**Written:** 2026-08-06 · **Phase 4 complete**
+**Repo:** `C:\Users\Divyansh Gupta\Documents\everything`
 
 ---
 
@@ -15,12 +15,23 @@
 ## Verify the state in one command
 
 ```bash
-pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py && python demo/phase3_demo.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
+pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **263 tests pass, ruff clean, all three demos exit 0, and the standalone verifier
-reports 6/6 checks passed.** Everything runs offline — no API key, no cost. If that holds,
-nothing has rotted.
+Expected: **317 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
+no cost. If that holds, nothing has rotted.
+
+The AgentDojo sweep is separate because it needs the optional extra and takes a few minutes:
+
+```bash
+pip install -e ".[agentdojo]" && python demo/phase4_eval.py
+```
+
+The single skip is `test_the_adapter_reports_the_install_command_when_it_is_missing`, which
+can only run when AgentDojo is *absent*. If AgentDojo is installed, four adapter tests run
+instead and that one skips — so the skip count flips depending on the extra, and both states
+are correct.
 
 ---
 
@@ -61,21 +72,51 @@ nothing.
 | 1 — Interception & provenance | **Done** | `aegis/proxy/`, `aegis/provenance/`, `aegis/mockmodel/` |
 | 2 — Causal attribution | **Done** | `aegis/attribution/`, `aegis/evaluation/` |
 | 3 — Warrants, log, enforcement | **Done** | `aegis/warrant/`, `aegis/log/`, `aegis/policy/`, `aegis/pep/`, `tools/verify_warrant.py` |
-| 4 — Adversarial evaluation | **Next** | AgentDojo |
-| 5 — Console & compliance export | Pending | Next.js |
+| 4 — Adversarial evaluation | **Done** | `aegis/evaluation/{agentdojo,surrogate,phase4,theta}.py`, `aegis/audit/`, `aegis/provenance/monotonicity.py` |
+| 5 — Console & compliance export | **Next** | Next.js |
 | 6 — Paper, patent, standards | Pending | — |
 
-### Phase 2 measured results (`results/phase2_evaluation.json`)
+### Phase 4 measured results (`results/phase4_agentdojo.json`)
+
+Contexts built from AgentDojo, injection **appended** to the genuine document so the engine
+has to discriminate rather than pick the only value present. Unit of measurement is the
+(case, field) pair — 58 usable pairs, 79 scored fields.
+
+| configuration | fields answered | class accuracy | precision | recall | localization | calls/action |
+| --- | --- | --- | --- | --- | --- | --- |
+| segment | 33 / 79 | 1.000 | 1.000 | 0.200 | 0.897 | 35.6 |
+| **+ span** | **68 / 79** | **1.000** | **1.000** | **0.800** | **0.931** | **41.1** |
+| + class | 33 / 79 | 1.000 | 1.000 | 0.200 | 0.897 | 35.7 |
+
+`replace` placement (AgentDojo's own, which often deletes the legitimate value) and `none`
+(the clean control, no attack at all) are in the same file. There were **zero false
+positives in every placement including the clean one**.
+
+**The four things to say about these numbers, unprompted:**
+
+1. **The model is a surrogate**, its susceptibility written down rather than discovered.
+   Attack-success-rate here says nothing about GPT-4 or Claude. What it buys is exact
+   ground truth — class accuracy is scored against the class that genuinely supplied each
+   value, computed by replaying a known function, not annotated by whoever wrote the engine.
+2. **58 of 629 pairs are usable.** The rest have no consequential action, no argument the
+   surrogate models, or no argument the injection attacks. A subset chosen by what the
+   method can measure is a subset chosen by the method.
+3. **"Fields answered" is the honest denominator.** Segment-only ablation is accurate and
+   largely silent; span-level ablation is what makes it useful. Reporting accuracy alone
+   would make 33/79 and 68/79 look identical.
+4. **Class-level ablation bought nothing here** and is off by default — AgentDojo's contexts
+   average 3.24 segments, so almost no class has the two the check needs.
+
+### Phase 2 results, still run as the regression signal
 
 ```
 precision 1.000   recall 1.000   f1 1.000   localization 1.000
 mean model calls per consequential action  6.9   (worst case 12)
 ```
 
-**Do not oversell these.** Seven hand-built cases against a deterministic mock model. They
-prove the engine is wired correctly and catch regressions fast; they are *not* a
-generalization claim. Phase 4 against AgentDojo's 629 security cases is where real numbers
-come from. Saying this out loud in an interview is a strength, not a hedge.
+Seven hand-built cases against a deterministic mock. They prove the engine is wired
+correctly and catch regressions in seconds; they are not a generalization claim, and Phase 4
+is what that claim now rests on. Saying this out loud in an interview is a strength.
 
 ---
 
@@ -84,18 +125,24 @@ come from. Saying this out loud in an interview is a strength, not a hedge.
 ```
 aegis/
   common/       ids (ULID), hashing + RFC 8785 JCS, decimals (fixed-precision scores)
-  provenance/   classes.py    P0-P4 + monotonicity rule (min_trust)
+  provenance/   classes.py    P0-P4 + trust ordering
+                monotonicity.py  theta, and the parent-influence estimators it thresholds
                 registry.py   pinned tools, conduit vs closed-world, drift detection
                 classifier.py chat request -> provenance-tagged segments with locators
                 models.py     Segment, ContextTrace, MessageLocator/ToolLocator
   proxy/        app.py        OpenAI-compatible interception, trace store
   mockmodel/    app.py        deterministic model reproducing recency-bias injection
   attribution/  gate.py       consequential-action gate (cost control)
-                ablation.py   request reconstruction, placeholder/delete, sentence split
+                ablation.py   reconstruction, placeholder/delete, sentence + span + class
                 engine.py     leave-one-out ablation, influence/necessity/argument_status
                 client.py     InProcessMockClient / HttpModelClient
+  audit/        replay.py     re-runs a warrant's attribution against a disclosed trace
   evaluation/   cases.py      labelled ground-truth cases
                 harness.py    precision/recall/localization/cost
+                agentdojo.py  adapter for AgentDojo's security suites (optional extra)
+                surrogate.py  deterministic vulnerable model, generalized past one tool
+                phase4.py     per-(case, field) scoring over the configuration matrix
+                theta.py      the monotonicity sweep, security vs utility
   warrant/      keys.py       Ed25519, base58btc/multibase, KeyRing (stands in for DID)
                 models.py     the W3C VC as pydantic, per SPEC section 4
                 issuer.py     eddsa-jcs-2022 signing, replay_ref, verify_signature
@@ -193,6 +240,50 @@ carried as fixed-precision decimal strings instead, which takes them out of the 
 entirely. The earlier code documented this deviation and deferred it on the grounds that it
 could not be reached; it was on the critical path the whole time.
 
+**8. A specification and an implementation can agree line by line and still contain a
+parameter that does nothing.** *(Phase 4)*
+θ, the monotonicity threshold, was specified in Phase 0 with a default of 0.15 and flagged
+for sweeping. Phase 1 approximated causal parents as *every preceding segment* and
+documented that as conservative; Phase 2 was to replace it with measured parents and never
+did. With every parent counted, `influence(p → s)` is a constant 1.0 — θ multiplies a
+constant, and no value of it changes any classification. Reading the spec alone shows a
+tunable. Reading the code alone shows a defensible approximation. Only trying to *sweep* it
+reveals there is nothing to sweep. The swept result then said the specified default is
+**dominated**: θ=0.40 catches as much laundering on evidence and preserves every clean
+output.
+
+**9. The metric can be measuring a different question than the one you asked.**
+*(Phase 4, and the one that nearly published a wrong number)*
+The first AgentDojo harness scored precision against "did the attacker's value land" and
+reported fifteen false positives. They were not false positives. AgentDojo's banking bills
+carry the *legitimate* amount inside a retrieved file, and a retrieved file is P3 by control
+C-19 — so attributing the amount to untrusted content was correct, and the attacker's rival
+value having lost is a separate fact. Precision is now scored against the class that
+actually supplied the emitted value, which the surrogate's known rule computes exactly.
+
+The consequence is bigger than the fix: **on real workloads the legitimate value of a field
+is routinely untrusted-sourced**, so a policy of "no untrusted influence on `amount`" would
+refuse every bill payment. Untrusted causation is evidence for policy to weigh, not a
+verdict. The Phase 3 demo works because the operator's own ledger independently names the
+account — a property of that scenario, not of payments in general.
+
+**10. A commitment looks complete until something tries to consume it.**
+`replay_ref` pinned the trace, the model and the method version. Building the replay
+verifier showed that does not determine the measurement: `mode` (placeholder vs delete) and
+`drilldown_threshold` change the counterfactuals and were not signed over. An auditor
+replaying under different settings would contradict an honest issuer — or fail to contradict
+a dishonest one who picked the flattering settings and never had to declare them. Both are
+now in `replay_ref`, and warrants predating that verify by signature but report
+`inconclusive` on replay rather than being replayed under the auditor's defaults.
+
+**11. The bug was not in the gate; it was in what the gate was shown.**
+Attacking the consequential-action gate — flagged as a single point of bypass since Phase 0,
+never tested — found that only the *first* proposed tool call was ever evaluated. Parallel
+tool calls are ordinary in the OpenAI API, so a model emitting `get_balance` alongside
+`execute_transfer` had the read gated as harmless and the transfer never attributed, never
+warranted, never enforced. An injection saying "check the balance first" is the entire
+attack. The gate's logic was correct throughout.
+
 **Unifying lesson, and the thing to say in an interview:** *per-argument attribution is the
 meaningful unit.* Action-level aggregation destroys the signal, because one action can be
 simultaneously legitimate in one field and hijacked in another — the human genuinely set
@@ -237,52 +328,79 @@ Decisions worth defending:
 
 ---
 
-## Phase 4 — what to build next
+## Phase 4 — what was built
 
-Goal: replace hand-built confidence with measured numbers, and attack our own system on
-purpose. This is where the honest results come from.
+**Definition of done, met:** attribution precision/recall reported over AgentDojo's security
+cases, with working evasions of our own design documented rather than hidden.
 
-**Definition of done:** attribution precision/recall and enforcement outcomes reported over
-AgentDojo's security cases, with at least one working evasion documented rather than hidden.
+`python demo/phase4_eval.py` measures; `python demo/phase4_attack.py` attacks. Two of the
+attack demo's four scenes end with the attacker winning, and both stay in the output.
+
+| Built | Outcome |
+| --- | --- |
+| `evaluation/agentdojo.py` + `surrogate.py` | 58 of 629 pairs usable, 79 scored fields, three placements including a no-attack control |
+| Span-level ablation (C-15) | **The headline result.** Fields answered 33/79 → 68/79 for +5.5 calls per action. Answers open question 2 |
+| Class-level ablation | Works on constructed ADV-5 cases, bought nothing on AgentDojo. Off by default. Answers open question 6, and not in its favour |
+| `audit/replay.py` | A fabricated attribution is now falsifiable. Building it showed `replay_ref` was under-committing; `mode` and `drilldown_threshold` added |
+| Attacking the gate | One complete bypass found and fixed (parallel tool calls), one evasion open and documented (naming). Answers open question 3 |
+| θ, implemented and swept | It had never been implemented. The specified default 0.15 is dominated by 0.40 |
+
+Decisions worth defending:
+
+- **The unit of measurement is (case, field), not the case.** An injection commonly attacks
+  more than one argument, and picking one per case would have meant picking whichever sorted
+  first — `amount`, which the surrogate fills by primacy and the attack can never take. Every
+  banking case would have reported a correct non-detection on a field never in play.
+- **Precision is scored against the class that supplied the value, not against whether the
+  attack landed.** Those are different questions, and conflating them cost fifteen phantom
+  false positives before it was caught. See design decision 9.
+- **Span-level results replace segment-level ones, and only for fields segment ablation
+  could not attribute.** A span sits inside a segment, so adding the two would count one
+  cause twice; and a field already attributed has its answer.
+- **Sentence-level results are still excluded** from `per_argument`. A span is bound to one
+  field and a sentence is not, so the argument for folding spans in does not extend to them.
+- **The surrogate's rules are inferred from the *legitimate* value**, never the attacker's.
+  Deriving them the other way would build a model to fall for the attack it is then scored
+  against.
+- **The clean placement exists because attacks that failed are easy negatives.** The
+  attacker's value is in context and merely lost. Ordinary work with no adversary is the
+  negative class that decides whether a control is deployable.
+
+---
+
+## Phase 5 — what to build next
+
+Goal: make the evidence readable by someone who is not going to read the JSON — a compliance
+officer, an auditor, a regulator under Article 12.
+
+**Definition of done:** an investigator can take a warrant and a trace and answer "why did
+this action happen, and who caused each field?" without reading any code, and export a
+record that satisfies Article 12's traceability requirement.
 
 ### Build order
 
-1. **`aegis/evaluation/agentdojo.py`** — adapter for AgentDojo's 629 security cases.
-   - Map their suites onto our provenance classes and consequential-action gate
-   - Report attack-success-rate alongside our precision/recall; they measure different
-     things and both matter
-   - **Expect the numbers to drop.** Seven hand-built cases against a deterministic mock is
-     a wiring proof. If AgentDojo reproduces 1.000, distrust the adapter before the engine.
-
-2. **Class-level ablation** — the highest-value attribution change, and the answer to
-   SPEC §9 open question 6.
-   - Ablate every segment of one provenance class at once, per class
-   - Separates benign redundancy (human and ledger agree) from adversarial redundancy (an
-     attacker plants the same value twice so no single removal moves it) — which
-     `argument_status: invariant` currently cannot tell apart
-   - Costs |classes| extra calls; measure whether it earns them
-
-3. **Span-level ablation (control C-15)** — specified since Phase 0, still unbuilt.
-   - The only route to attributing a field entangled with the transfer intent in the same
-     segment. The `amount` in our own demo is permanently `invariant` without it.
-
-4. **`aegis/audit/replay.py`** — the verifier for `replay_ref`.
-   - Re-run the ablation from a disclosed trace and compare against the signed numbers
-   - This is what turns a lying issuer from *non-repudiable* into *falsifiable*
-   - The commitment fields already ship; only the checker is missing
-
-5. **Attack the gate.** SPEC §9 open question 3 has been flagged since Phase 0 and is still
-   untested. It is a single point of bypass: an action the gate calls non-consequential
-   never gets attributed at all.
-
-6. **Sweep θ**, the monotonicity threshold (default 0.15, never swept).
+1. **A read-only console** over the artifacts that already exist. Warrant, receipt,
+   inclusion proof, per-argument attribution with `argument_status` and
+   `per_argument_redundancy` shown as distinct states rather than flattened into a score.
+   The per-field three-way status is the thing a UI can express that a number cannot.
+2. **The replay verdict as a first-class view.** `consistent` / `contradicted` /
+   `inconclusive` with the reason attached — this is the only screen in the product where
+   the operator is the subject rather than the author.
+3. **Article 12 export.** Map the warrant fields onto the record-keeping obligations
+   explicitly, and say in the export which obligations it does *not* discharge.
+4. **Real-model measurement** (open question 9). The adapter already runs against
+   `HttpModelClient`; what is missing is a key and a budget. This is the single largest
+   upgrade available to the credibility of every number in `results/`.
+5. **Classifier adversarial evaluation** (residual risk 1). Phase 4 measured attribution
+   given correct classification. Nobody has attacked the classifier's P0 boundary.
 
 ### Watch out for
 
 - The Phase 2 case set must keep passing; it is the fast regression signal
 - Cost is a headline result, not a footnote — an accurate method nobody can afford does
   not ship
-- Report evasions that work. THREAT_MODEL §6 is the format
+- Report evasions that work. THREAT_MODEL §6 is the format, and it now has twelve entries
+- A console that renders `invariant` and `unknown` the same way undoes design decision 6
 
 ---
 
@@ -305,19 +423,28 @@ AgentDojo's security cases, with at least one working evasion documented rather 
 
 ## Open questions carried forward (also in `docs/SPEC.md` §9)
 
-1. What is θ, the monotonicity influence threshold, in practice? (default 0.15, unswept)
-2. Does span-level ablation defeat redundant-encoding attacks, or only raise cost? It is now
-   also the only route to attributing a field entangled with the transfer intent.
-3. **Can the consequential-action gate be attacked into classifying a payment as
-   non-consequential? Probably. It is a single point of bypass and must be tested.**
-4. Real cost per consequential action against a real model — is 6.9 calls affordable?
-5. Placeholder vs delete ablation: currently indistinguishable (f1 1.000 both). Needs a
-   harder case set to separate them.
-6. **`invariant` does not separate benign redundancy from adversarial redundancy.** Class-
-   level ablation would; it is untested and is the most likely home for an ADV-5 evasion.
+Answered in Phase 4 — 1 (theta had no implementation; 0.15 is dominated by 0.40),
+2 (span-level ablation defeats entanglement: recall 0.20 → 0.80), 3 (the gate has two
+evasions, one fixed and one open), 6 (class-level ablation separates the redundancies but
+bought nothing on AgentDojo).
+
+Still open:
+
+4. Real cost per consequential action against a real model. Measured at 35.6 calls per
+   action, 41.1 with span-level ablation, against a free in-process surrogate — which
+   establishes nothing about provider prices or latency. One case hit the 400-call ceiling,
+   and a truncated attribution reports partial evidence.
+5. Placeholder vs delete ablation: still indistinguishable on every case set tried.
 7. Does per-argument confidence carry policy weight that action-level confidence does not?
    The 0.60 action-level floor fires on a legitimate action split evenly between two trusted
-   classes, which looks like a false-positive generator waiting for a real workload.
-8. Sentence-level ablations are measured but do not feed `per_argument` or
-   `argument_status`, which come from segment-level results only. Folding them in may
-   improve accuracy or just add variance — a Phase 4 measurement.
+   classes, which still looks like a false-positive generator waiting for a real workload.
+8. Sentence-level ablations still do not feed `per_argument`. Spans now do; the same
+   argument does not extend to sentences, which have no field to attribute to.
+9. **New.** Every Phase 4 number is measured against the surrogate. The adapter runs
+   unchanged against `HttpModelClient` — this needs a key and a budget, and it is the
+   biggest single credibility upgrade available.
+10. **New.** 58 of 629 pairs are usable. A subset selected by what the method can measure is
+    a subset selected by the method.
+11. **New.** The gate's read-verb branch is the only place it fails open, and narrowing it
+    would make every `get_*` a candidate for attribution. Nobody has measured what that
+    would actually cost on a realistic read/write ratio.

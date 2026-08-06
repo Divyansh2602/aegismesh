@@ -119,12 +119,24 @@ class ReplayRef(_Model):
 
     Carrying the trace hash and the ordered segment hashes makes the claim falsifiable: an
     auditor granted the underlying trace re-runs leave-one-out ablation over the same
-    segments in the same order and compares. The re-run verifier is Phase 4 work; the
-    fields are emitted now because they sit under the signature, and adding them later
-    would either invalidate every warrant already issued or fork the format.
+    segments in the same order and compares. The re-run verifier is ``aegis/audit/replay.py``.
 
     ``seed`` is recorded, not relied upon. Many hosted APIs accept a seed without honouring
     it, so it is a hint for reproduction rather than a guarantee of it.
+
+    **``mode`` and ``drilldown_threshold`` were added in Phase 4, when building the replay
+    verifier showed the commitment was incomplete.** Phase 3 committed to the context, the
+    model and the method version, which reads like enough. It is not: placeholder and
+    delete ablation produce different counterfactuals, and the drilldown threshold decides
+    which segments get split into sentences at all. An auditor replaying under different
+    settings measures a different quantity and can contradict an honest issuer -- or, worse
+    for the design, fail to contradict a dishonest one who chose the settings that flattered
+    the result and never had to say so.
+
+    Adding them is a format change, made deliberately and while the format is still ours to
+    change. Warrants issued before it verify by signature but cannot be replayed, which is
+    the honest outcome: the commitment they carry genuinely does not determine the
+    measurement.
     """
 
     trace_hash: str
@@ -132,6 +144,12 @@ class ReplayRef(_Model):
     model_ref: str = ""
     method_version: str = ""
     seed: int | None = None
+    mode: str = ""
+    """Ablation mode: ``placeholder`` or ``delete``. Empty on pre-Phase-4 warrants."""
+
+    drilldown_threshold: str = ""
+    """Sentence-drilldown threshold, as a fixed-precision string like every other score
+    crossing a signature. Empty on pre-Phase-4 warrants."""
 
 
 class AttributionClaim(_Model):

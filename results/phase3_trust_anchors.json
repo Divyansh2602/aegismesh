@@ -3,6 +3,6 @@
   "issuer_public_key_multibase": "z6MkjHVbv4nvjSuHW9LRVerRgyApXQWBsTLnBVCP8UuprPR2",
   "log_id": "did:web:log.aegismesh.example",
   "log_public_key_multibase": "z6Mkotq9s9pFMfvreFiypzcDJLDGDqBHaMHDo1hcvn5MKJro",
-  "witnessed_root": "sha256:9d4de10e2cdf58c390802b4ad81cffaaab10b60e35cbad5b314994f82f704632",
+  "witnessed_root": "sha256:1eb348344e53a5f59303e73416540dda008618e0129b0d62a9c171b4cefe0887",
   "witnessed_tree_size": 4
 }

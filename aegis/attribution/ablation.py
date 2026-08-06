@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import copy
 import re
-from typing import Literal
+from collections.abc import Iterable
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal
 
 from aegis.provenance.models import MessageLocator, Segment, ToolLocator
 
@@ -119,6 +121,198 @@ def segment_sentences(body: dict, segment: Segment) -> list[tuple[int, int, str]
     return sentence_ranges(content[start:end], offset=start)
 
 
+def value_spans(text: str, value: Any) -> list[tuple[int, int, str]]:
+    """Every occurrence of ``value`` in ``text``, in that text's character space.
+
+    "Span" here means *the occurrence of a proposed argument's value*, not an arbitrary
+    substring. That choice is what makes span-level ablation affordable: instead of
+    sweeping every window in the context, it ablates only the places a value the model
+    actually emitted appears, which is at most a handful of positions per segment.
+
+    A value is matched in several surface forms because the model emits a parsed value
+    while the context carries a written one -- ``2000000.0`` in the tool call is
+    ``USD 2,000,000`` in the mandate. Missing that correspondence would report no span for
+    the one field span-level ablation exists to reach.
+    """
+    spans: list[tuple[int, int, str]] = []
+    for form in _value_forms(value):
+        cursor = 0
+        while (found := text.find(form, cursor)) >= 0:
+            spans.append((found, found + len(form), form))
+            cursor = found + len(form)
+    return _longest_non_overlapping(spans)
+
+
+def segment_value_spans(
+    body: dict, segment: Segment, values: Iterable[Any]
+) -> list[tuple[int, int, str]]:
+    """Spans inside a segment carrying one of ``values``, in that message's character space.
+
+    Mirrors ``segment_sentences``: a segment sliced out of a user turn is searched only
+    within its own range, while a segment synthesised from a whole message is searched
+    across the whole content, because the synthesised wrapper text (``[tool_result:...]``)
+    is a display artifact that is not present in the request being ablated.
+    """
+    if not isinstance(segment.locator, MessageLocator):
+        return []
+
+    messages = body.get("messages", [])
+    if not 0 <= segment.locator.message_index < len(messages):
+        return []
+
+    content = message_text(messages[segment.locator.message_index])
+    if segment.locator.whole_message:
+        window, offset = content, 0
+    else:
+        start, end = segment.locator.start, segment.locator.end
+        window, offset = content[start:end], start
+
+    found: list[tuple[int, int, str]] = []
+    for value in values:
+        found += [(s + offset, e + offset, text) for s, e, text in value_spans(window, value)]
+    return _longest_non_overlapping(found)
+
+
+def ablate_segments(
+    body: dict, segments: Iterable[Segment], mode: AblationMode = "placeholder"
+) -> dict | None:
+    """Remove several segments in a single reconstruction -- used for class-level ablation.
+
+    Not the same as ablating each segment in turn: the point is to remove *all* of a
+    provenance class at once, so a value planted redundantly across several segments of
+    one class disappears together rather than surviving every individual removal.
+
+    Edits are applied to one copy, character ranges first (descending by start within each
+    message, so an earlier edit cannot invalidate a later offset), then whole-message
+    deletions descending by index. Doing it in the other order would shift the indices the
+    range edits were computed against.
+    """
+    edits: list[tuple[int, int, int, bool]] = []
+    tool_names: set[str] = set()
+
+    for segment in segments:
+        if isinstance(segment.locator, ToolLocator):
+            tool_names.add(segment.locator.tool_name)
+        elif isinstance(segment.locator, MessageLocator):
+            locator = segment.locator
+            edits.append(
+                (
+                    locator.message_index,
+                    locator.start,
+                    locator.end,
+                    locator.whole_message,
+                )
+            )
+
+    if not edits and not tool_names:
+        return None
+
+    ablated = copy.deepcopy(body)
+    if tool_names:
+        ablated["tools"] = [
+            tool
+            for tool in ablated.get("tools", []) or []
+            if tool.get("function", {}).get("name") not in tool_names
+        ]
+
+    messages = ablated.get("messages", [])
+    ranges = sorted(
+        (e for e in edits if not e[3]),
+        key=lambda e: (e[0], e[1]),
+        reverse=True,
+    )
+    for index, start, end, _ in ranges:
+        if 0 <= index < len(messages):
+            _apply_range(messages[index], start, end, mode)
+
+    whole = sorted({e[0] for e in edits if e[3]}, reverse=True)
+    for index in whole:
+        if not 0 <= index < len(messages):
+            continue
+        if mode == "delete":
+            messages.pop(index)
+        else:
+            _blank_message(messages[index])
+
+    return ablated
+
+
+def _value_forms(value: Any) -> list[str]:
+    """The written forms a proposed argument value may take in the context.
+
+    Ordered longest-first so ``2,000,000`` is preferred over the bare ``2000000`` it
+    contains, which keeps the ablated span tight around the whole written number instead of
+    leaving a stray separator behind.
+    """
+    forms: set[str] = set()
+    text = str(value)
+    if text.strip():
+        forms.add(text)
+
+    if isinstance(value, bool):
+        return sorted(forms, key=len, reverse=True)
+
+    try:
+        number = Decimal(text)
+    except (InvalidOperation, ValueError):
+        return sorted(forms, key=len, reverse=True)
+
+    plain = format(number.normalize(), "f")
+    forms.add(plain)
+    if number == number.to_integral_value():
+        plain = format(number.to_integral_value(), "f")
+        forms.add(plain)
+    else:
+        forms.add(f"{number:.2f}")
+
+    for form in list(forms):
+        grouped = _group_thousands(form)
+        if grouped is not None:
+            forms.add(grouped)
+
+    return sorted(forms, key=len, reverse=True)
+
+
+def _group_thousands(number: str) -> str | None:
+    whole, _, fraction = number.partition(".")
+    sign, digits = ("-", whole[1:]) if whole.startswith("-") else ("", whole)
+    if not digits.isdigit() or len(digits) <= 3:
+        return None
+    grouped = f"{int(digits):,}"
+    return f"{sign}{grouped}.{fraction}" if fraction else f"{sign}{grouped}"
+
+
+def _longest_non_overlapping(
+    spans: list[tuple[int, int, str]],
+) -> list[tuple[int, int, str]]:
+    """Drop spans contained in or overlapping a longer one, keeping document order.
+
+    Two forms of the same value can match at overlapping positions. Ablating both would
+    charge two model calls to measure one occurrence, and the second ablation would run
+    against text the first had already blanked.
+    """
+    kept: list[tuple[int, int, str]] = []
+    for span in sorted(spans, key=lambda s: (s[1] - s[0], -s[0]), reverse=True):
+        if any(span[0] < other[1] and other[0] < span[1] for other in kept):
+            continue
+        kept.append(span)
+    return sorted(kept)
+
+
+def _apply_range(message: dict, start: int, end: int, mode: AblationMode) -> None:
+    content = message_text(message)
+    start = max(0, min(start, len(content)))
+    end = max(start, min(end, len(content)))
+    replacement = "" if mode == "delete" else neutral_placeholder(end - start)
+    message["content"] = content[:start] + replacement + content[end:]
+
+
+def _blank_message(message: dict) -> None:
+    content = message_text(message)
+    message["content"] = neutral_placeholder(len(content))
+    message.pop("tool_calls", None)
+
+
 def _ablate_tool(body: dict, locator: ToolLocator) -> dict:
     ablated = copy.deepcopy(body)
     ablated["tools"] = [
@@ -146,14 +340,8 @@ def _ablate_message_range(
         if mode == "delete":
             messages.pop(message_index)
         else:
-            content = message_text(messages[message_index])
-            messages[message_index]["content"] = neutral_placeholder(len(content))
-            messages[message_index].pop("tool_calls", None)
+            _blank_message(messages[message_index])
         return ablated
 
-    content = message_text(messages[message_index])
-    start = max(0, min(start, len(content)))
-    end = max(start, min(end, len(content)))
-    replacement = "" if mode == "delete" else neutral_placeholder(end - start)
-    messages[message_index]["content"] = content[:start] + replacement + content[end:]
+    _apply_range(messages[message_index], start, end, mode)
     return ablated

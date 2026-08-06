@@ -27,10 +27,11 @@ from aegis.attribution.models import (
     AttributionResult,
     Contributor,
     InfluenceDistribution,
+    Redundancy,
 )
 from aegis.common.hashing import hash_text
 from aegis.provenance.classes import ProvenanceClass
-from aegis.provenance.models import ContextTrace, MessageLocator
+from aegis.provenance.models import ContextTrace, MessageLocator, Segment
 
 #: A segment must reach this share of total segment-level influence before its sentences
 #: are worth the extra model calls.
@@ -52,6 +53,8 @@ class AttributionEngine:
         mode: ablation.AblationMode = "placeholder",
         drilldown_threshold: float = DEFAULT_DRILLDOWN_THRESHOLD,
         sentence_drilldown: bool = True,
+        span_ablation: bool = False,
+        class_ablation: bool = False,
         max_model_calls: int = 400,
     ) -> None:
         self.client = client
@@ -60,6 +63,23 @@ class AttributionEngine:
         self.mode = mode
         self.drilldown_threshold = drilldown_threshold
         self.sentence_drilldown = sentence_drilldown
+        self.span_ablation = span_ablation
+        """Ablate the individual occurrences of a proposed value (control C-15).
+
+        Off by default so the cost baseline measured in Phase 2 stays comparable, and
+        because it is only worth paying for on fields segment ablation could not reach.
+        ``demo/phase4_eval.py`` reports both settings side by side rather than asserting
+        which is right.
+        """
+
+        self.class_ablation = class_ablation
+        """Ablate each provenance class as a whole, in addition to each segment.
+
+        Costs at most one call per class present. Off by default for the same reason as
+        ``span_ablation``: the question of whether it earns those calls is a measurement,
+        not a default.
+        """
+
         self.max_model_calls = max_model_calls
 
     async def attribute(
@@ -68,7 +88,7 @@ class AttributionEngine:
         trace: ContextTrace,
         baseline: ActionSignature | None = None,
     ) -> AttributionResult:
-        baseline = baseline or ActionSignature.from_response(trace.upstream_response or {})
+        baseline = baseline or self._select_action(trace.upstream_response or {})
         decision = self.gate.evaluate(baseline)
 
         result = AttributionResult(
@@ -77,7 +97,9 @@ class AttributionEngine:
             gate_reason=decision.reason,
             resamples=self.resamples,
             model_ref=trace.model,
-            granularity=["segment", "sentence"] if self.sentence_drilldown else ["segment"],
+            granularity=self._granularity(),
+            mode=self.mode,
+            drilldown_threshold=self.drilldown_threshold,
         )
 
         if not decision.consequential:
@@ -97,6 +119,15 @@ class AttributionEngine:
                 body, trace, baseline, fields, segment_scores, budget
             )
 
+        span_scores: list[Contributor] = []
+        if self.span_ablation:
+            span_scores = await self._score_spans(body, trace, baseline, fields, budget)
+            contributors += span_scores
+
+        class_scores: list[Contributor] = []
+        if self.class_ablation:
+            class_scores = await self._score_classes(body, trace, baseline, fields, budget)
+
         result.model_calls = budget.spent
         # Rank by value-causation first, necessity second. Ranking by raw influence puts
         # the human mandate at the top of every poisoned case -- removing it cancels the
@@ -111,10 +142,19 @@ class AttributionEngine:
 
         result.influence = _aggregate(segment_scores, field=None)
         result.necessity = _aggregate(segment_scores, field=None, use_necessity=True)
-        result.argument_status = {f: _field_status(segment_scores, f) for f in fields}
-        result.per_argument = {
-            f: _aggregate_field(segment_scores, f, result.argument_status[f]) for f in fields
-        }
+
+        for field in fields:
+            status, distribution = _resolve_field(segment_scores, span_scores, field)
+            result.argument_status[field] = status
+            result.per_argument[field] = distribution
+
+        if self.class_ablation:
+            result.per_argument_redundancy = {f: _redundancy(class_scores, f) for f in fields}
+            result.per_argument_class_influence = {
+                f: _aggregate_field(class_scores, f, _REDUNDANCY_STATUS[redundancy])
+                for f, redundancy in result.per_argument_redundancy.items()
+            }
+
         result.per_argument_confidence = {
             f: (result.per_argument[f].confidence() if status == "attributed" else 0.0)
             for f, status in result.argument_status.items()
@@ -123,6 +163,25 @@ class AttributionEngine:
         return result
 
     # ------------------------------------------------------------------ internals
+
+    def _select_action(self, response: dict) -> ActionSignature:
+        """Pick which of the proposed calls to attribute.
+
+        **The first consequential one, not the first one.** Reading position 0 and stopping
+        was a complete bypass of the gate: a model emitting ``get_balance`` alongside
+        ``execute_transfer`` had the read classified read-only and the transfer never
+        measured at all. Found in Phase 4 by attacking the gate on purpose, which is what
+        SPEC.md open question 3 asked for.
+
+        Falling back to the first call when none is consequential keeps the gate's reason
+        string about a real operation rather than an empty one, so a genuinely read-only
+        turn still explains itself.
+        """
+        proposed = ActionSignature.all_from_response(response)
+        for signature in proposed:
+            if self.gate.evaluate(signature).consequential:
+                return signature
+        return proposed[0] if proposed else ActionSignature()
 
     async def _score_segments(
         self,
@@ -212,6 +271,131 @@ class AttributionEngine:
                 )
         return results
 
+    async def _score_spans(
+        self,
+        body: dict,
+        trace: ContextTrace,
+        baseline: ActionSignature,
+        fields: list[str],
+        budget: _Budget,
+    ) -> list[Contributor]:
+        """Ablate each written occurrence of a proposed value (control C-15).
+
+        This is the answer to the limitation SPEC.md section 3.3 records against itself.
+        Per-field influence is measured only over ablations where the action survived, and
+        a field whose sole source is the segment that also carries the transfer intent can
+        therefore never be attributed: removing that segment removes the intent, the action
+        cancels, and no comparable run exists. The ``amount`` in the invoice scenario is the
+        worked example -- it appears only in the human's mandate.
+
+        Ablating the number alone leaves the instruction to pay standing. The action
+        survives, the run is comparable, and the amount is attributed to the class that
+        actually wrote it. The intent and the value lived in one segment; they do not live
+        in one span.
+
+        Cost is bounded by the number of places the model's own output appears in the
+        context, so it scales with how much of the action is quoted back rather than with
+        the size of the context.
+        """
+        contributors: list[Contributor] = []
+        values = {f: baseline.arguments.get(f) for f in fields}
+
+        for segment in trace.segments:
+            if not isinstance(segment.locator, MessageLocator):
+                continue
+            for field in fields:
+                value = values[field]
+                if value is None or not str(value).strip():
+                    continue
+                for start, end, text in ablation.segment_value_spans(body, segment, [value]):
+                    if budget.exhausted:
+                        return contributors
+                    ablated = ablation.ablate_range(
+                        body, segment.locator.message_index, start, end, mode=self.mode
+                    )
+                    measured = await self._measure(ablated, baseline, fields, budget)
+                    contributors.append(
+                        Contributor(
+                            segment_id=segment.segment_id,
+                            **{"class": segment.cls},
+                            origin=segment.source.origin,
+                            excerpt_hash=hash_text(text),
+                            influence=measured.influence,
+                            necessity=measured.necessity,
+                            per_field=measured.per_field,
+                            comparable=measured.comparable,
+                            granularity="span",
+                            field_hint=field,
+                        )
+                    )
+        return contributors
+
+    async def _score_classes(
+        self,
+        body: dict,
+        trace: ContextTrace,
+        baseline: ActionSignature,
+        fields: list[str],
+        budget: _Budget,
+    ) -> list[Contributor]:
+        """Remove each provenance class as a whole and re-run the decision.
+
+        Leave-one-out cannot see redundancy. An attacker who writes the destination account
+        into two retrieved documents survives every single-segment ablation -- remove
+        either copy and the other still determines the value -- so the field reports
+        ``invariant`` and looks exactly like a legitimately corroborated one. That is
+        THREAT_MODEL.md residual risk 2, and it was the most likely home for an ADV-5
+        evasion.
+
+        Removing all of P3 at once removes both copies together. If the value moves, one
+        class held the field on its own; if it does not, the value is genuinely
+        overdetermined across classes and no attacker controls it.
+
+        Classes with a single ablatable segment are skipped: their class-level result is
+        their segment-level result, already measured, and paying a second call for the same
+        counterfactual buys nothing.
+        """
+        by_class: dict[ProvenanceClass, list[Segment]] = {}
+        for segment in trace.segments:
+            if segment.locator is not None:
+                by_class.setdefault(segment.cls, []).append(segment)
+
+        contributors: list[Contributor] = []
+        for cls, segments in sorted(by_class.items()):
+            if len(segments) < 2:
+                continue
+            if budget.exhausted:
+                break
+            ablated = ablation.ablate_segments(body, segments, mode=self.mode)
+            if ablated is None:
+                continue
+
+            measured = await self._measure(ablated, baseline, fields, budget)
+            contributors.append(
+                Contributor(
+                    segment_id=f"class:{cls.value}",
+                    **{"class": cls},
+                    origin=None,
+                    excerpt_hash=hash_text("|".join(s.source.content_hash for s in segments)),
+                    influence=measured.influence,
+                    necessity=measured.necessity,
+                    per_field=measured.per_field,
+                    comparable=measured.comparable,
+                    granularity="class",
+                )
+            )
+        return contributors
+
+    def _granularity(self) -> list[str]:
+        levels = ["segment"]
+        if self.sentence_drilldown:
+            levels.append("sentence")
+        if self.span_ablation:
+            levels.append("span")
+        if self.class_ablation:
+            levels.append("class")
+        return levels
+
     async def _measure(
         self,
         ablated_body: dict,
@@ -249,7 +433,11 @@ class AttributionEngine:
             budget.spend()
             runs += 1
 
-            observed = ActionSignature.from_response(response)
+            # Look for the baseline's own operation among everything proposed, rather than
+            # at whichever call came first. A model that reorders its parallel calls has
+            # not cancelled anything, and scoring it as a cancellation would fabricate
+            # necessity for a segment that changed nothing.
+            observed = ActionSignature.select(response, baseline.tool)
             if not observed.same_tool(baseline):
                 cancellations += 1
                 continue
@@ -297,6 +485,68 @@ def _field_status(contributors: list[Contributor], field: str) -> ArgumentStatus
     if any(contributor.comparable for contributor in contributors):
         return "invariant"
     return "unknown"
+
+
+def _resolve_field(
+    segment_scores: list[Contributor],
+    span_scores: list[Contributor],
+    field: str,
+) -> tuple[ArgumentStatus, InfluenceDistribution]:
+    """Settle one field's status and distribution across the granularities that ran.
+
+    Span-level results are consulted **only for fields segment-level ablation could not
+    attribute**, and they replace rather than supplement the segment numbers. Both halves
+    of that matter. A span sits inside a segment, so adding its influence to its parent's
+    would count one cause twice and inflate whichever class happened to be quoted back most
+    often. And a field already attributed at segment granularity has its answer; re-deriving
+    it from a finer measurement would change published numbers for no gain.
+
+    Sentence-level results are deliberately still excluded (SPEC.md open question 8). A
+    sentence is a slice with no field association -- it double-counts its parent segment
+    exactly as a span does, without a span's saving grace of being bound to one field.
+    """
+    status = _field_status(segment_scores, field)
+    if status == "attributed" or not span_scores:
+        return status, _aggregate_field(segment_scores, field, status)
+
+    for_field = [c for c in span_scores if c.field_hint == field]
+    span_status = _field_status(for_field, field)
+    if span_status == "attributed":
+        return span_status, _aggregate(for_field, field=field)
+    return status, _aggregate_field(segment_scores, field, status)
+
+
+#: Class-level ablation carries exactly the same all-zero ambiguity as segment-level, so it
+#: is resolved the same way rather than a second way. The first version of this code called
+#: ``_aggregate`` directly and reproduced design decision 6 one layer up: a field measured
+#: to have no class-level influence came back as the uniform fallback, asserting a 0.2
+#: untrusted share of a value class-level ablation had just shown no class controls. The
+#: bug that denied a legitimate payment in Phase 3 is easy to write twice.
+_REDUNDANCY_STATUS: dict[Redundancy, ArgumentStatus] = {
+    "within_class": "attributed",
+    "cross_class": "invariant",
+    "unmeasured": "unknown",
+}
+
+
+def _redundancy(class_scores: list[Contributor], field: str) -> Redundancy:
+    """Read a field's redundancy off the class-level ablations.
+
+    ``within_class`` whenever removing some class as a whole moved the value: that class
+    determines the field by itself, whether through one pivotal segment or several
+    redundant ones. Combined with ``argument_status == "invariant"`` -- no *single* segment
+    moved it -- that pair is the redundant-encoding signature, and when the class is P3 it
+    is an ADV-5 evasion caught rather than missed.
+
+    ``cross_class`` requires a comparable run: classes were removed, the action survived,
+    and the value held. Without one there is nothing to conclude, so the answer is
+    ``unmeasured`` and policy is left to fail closed on the status instead.
+    """
+    if any(c.per_field.get(field, 0.0) > NOISE_FLOOR for c in class_scores):
+        return "within_class"
+    if any(c.comparable for c in class_scores):
+        return "cross_class"
+    return "unmeasured"
 
 
 def _aggregate_field(

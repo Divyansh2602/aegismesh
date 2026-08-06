@@ -74,6 +74,8 @@ A6 is an asset, not an afterthought. Every control below is evaluated against it
 | **ADV-3** | **Compromised sub-agent** | Full control of one agent in a multi-agent chain | Launder malicious intent as legitimate upstream output |
 | **ADV-4** | **Dishonest operator** | Runs the agent and the AegisMesh instance itself | Forge or suppress warrants to escape liability |
 | **ADV-5** | **Adaptive attacker** | ADV-1, plus full knowledge of AegisMesh's design and attribution method | Craft input that survives ablation-based attribution |
+| **ADV-6** | **Gate-shape attacker** | ADV-1. Influences *how many* calls the agent proposes and in what order, not what tools exist | Hide a consequential call behind a harmless one so it is never measured. **Found and fixed in Phase 4 — §6.12** |
+| **ADV-7** | **Naming attacker** | ADV-2. Chooses the names of the operations it exposes | Name a consequential operation so the gate reads it as read-only. **Found in Phase 4, open — §6.11** |
 
 **ADV-4 is the reason this project is architecturally interesting.** Most agent-security
 products implicitly trust the operator, which makes their audit logs worthless to a
@@ -189,7 +191,16 @@ Stated explicitly, because a threat model that claims full coverage is not credi
 
 1. **Provenance classification is itself an attack surface.** An adversary who gets content
    mislabelled `P0 human-mandate` defeats the entire chain. Classification correctness is the
-   system's weakest link and must be measured in Phase 4, not assumed.
+   system's weakest link.
+
+   Phase 4 measured the *downstream* half of this and not the mislabelling itself: over
+   AgentDojo, every field the engine was willing to answer for was attributed to the class
+   that genuinely supplied its value (class accuracy 1.000 across all placements and
+   configurations). That is a statement about attribution given correct classification. The
+   claim not made, and the one that matters here, is that the classifier resists an
+   adversary trying to earn P0 — matching is strict-substring against a declared mandate
+   precisely so that it cannot be approximated into, but no adversarial evaluation of the
+   classifier has been run.
 2. **Attribution is approximate.** Leave-one-out ablation measures counterfactual influence,
    not mechanistic causation. It can be fooled by redundant encoding — where content is
    duplicated so removing any single copy changes nothing. C-15 mitigates but does not
@@ -197,21 +208,30 @@ Stated explicitly, because a threat model that claims full coverage is not credi
 
    Phase 3 sharpened this into a specific, testable gap. The system now reports a field no
    single ablation moved as `invariant` rather than as unattributed, which is what lets a
-   legitimately overdetermined field be admitted. But **`invariant` does not distinguish
-   benign redundancy from adversarial redundancy.** A human and an internal ledger naming
-   the same account, and an attacker who plants the same account twice so no single removal
-   changes it, currently produce the same reading. Class-level ablation — removing every
-   segment of one provenance class at once — would separate them for |classes| extra model
-   calls. It is unimplemented, and it is the most likely place an ADV-5 evasion lives.
-3. **Some fields cannot be attributed at all at current granularity.** A field whose only
-   determining segment is also the segment whose removal cancels the action yields no
-   comparable counterfactual, ever. The transfer *amount* in our own demo is the worked
-   example: it appears only in the human's mandate, and removing that mandate removes the
-   transfer intent with it. Span-level ablation (C-15) is the specified fix and is not
-   built. Until it is, value-bound policy on such fields rests on the mandate's declared
-   constraints rather than on measured causation.
-4. **Attribution cost may be prohibitive** for high-throughput agents. If measured cost is
-   unacceptable, that is a publishable finding rather than a hidden failure.
+   legitimately overdetermined field be admitted. But `invariant` does not on its own
+   distinguish benign redundancy from adversarial redundancy.
+
+   **Phase 4 built class-level ablation to separate them**, and fields now carry
+   `per_argument_redundancy`: `within_class` means one provenance class controlled the value
+   even though no single segment did, which on P3 is the ADV-5 signature. It works on
+   constructed cases. It bought **nothing** on AgentDojo — those contexts average 3.24
+   segments, so almost no class ever has the two segments the check needs, and it answered
+   no field segment ablation had not already answered. The control exists and is off by
+   default; the case for it rests on a constructed test, and the honest reading is that
+   ADV-5 has a detector without a measurement.
+3. ~~**Some fields cannot be attributed at all at current granularity.**~~ **Closed in
+   Phase 4 by span-level ablation (C-15).** Ablating one written occurrence of a value
+   leaves the sentence carrying the intent standing, so the action survives, the run is
+   comparable, and the field is attributed. Over AgentDojo this moved the fields the engine
+   would answer for from 33 of 79 to 68 of 79 at +5.5 model calls per action, precision
+   unchanged. The residual is narrower: a field whose value never appears in the context in
+   any recognizable written form still has no span to ablate.
+4. **Attribution cost may be prohibitive** for high-throughput agents. Measured at 35.6
+   model calls per consequential action over AgentDojo, 41.1 with span-level ablation, and
+   one case hit the 400-call ceiling — a truncated attribution reports partial evidence,
+   where an unablated segment's influence reads as zero for reasons unrelated to causation.
+   All of it against a free in-process surrogate, so none of it establishes affordability at
+   provider prices.
 5. **Key compromise is unmitigated cryptographically.** Warrant forgery becomes possible with
    the issuer key. Operational controls only.
 6. **The log proves what was said, not that it was true.** ADV-4 runs the issuer and can
@@ -224,10 +244,23 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    `attribution.replay_ref` (SPEC.md §4.4) commits under the signature to the exact
    classified context the measurement was taken over, so an auditor granted the trace can
    re-run the ablation and catch a discrepancy. That makes a lie **falsifiable**, which is
-   the strongest property available short of attested execution. The re-run verifier is
-   Phase 4 work; only the commitment exists today. This is asserted by a test that is
+   the strongest property available short of attested execution. This is asserted by a test
    deliberately written to *pass* while the system is admitting a fraudulent action
    (`test_the_log_does_not_prove_the_attribution_is_true`).
+
+   **Phase 4 built the re-run verifier** (`aegis/audit/replay.py`), and building it exposed
+   that `replay_ref` did not commit to enough: `mode` and `drilldown_threshold` change the
+   measurement and were not carried, so an issuer could have chosen flattering settings and
+   never declared them. Both are now under the signature. Three limits remain, and they are
+   the whole shape of what replay is worth:
+
+   - It needs the **trace disclosed**, which is a far larger disclosure than a credential.
+     An operator who refuses is not thereby contradicted.
+   - `consistent` means *reproducible*, not *honest*. An operator running a doctored engine
+     reproduces perfectly against their own binary; the property holds only because the
+     auditor runs their own copy of the method and never calls back to the issuer.
+   - `contradicted` is evidence, not intent. Silent provider-side model revision behind a
+     stable `model_ref` produces the same verdict.
 7. **Consistency proofs detect rewriting, not omission.** An entry never submitted leaves no
    gap; the tree is perfectly consistent without it. For permits this is harmless — the
    relying party will not honour an action without an inclusion proof, so an unlogged permit
@@ -246,6 +279,33 @@ Stated explicitly, because a threat model that claims full coverage is not credi
 10. **The relying party must actually verify.** A PEP that is deployed but not enforced
     provides zero security while appearing to provide it — the single most likely real-world
     failure mode of this design.
+11. **The consequential-action gate can be evaded by naming (ADV-7, open).** The gate
+    classifies on the operation name, and an operation whose name contains only read verbs
+    is never attributed, never warranted and never enforced — the whole system is off for
+    that action. `check_out` charges a card; `lookup_settlement` moves money. Two further
+    names found in the same sweep, `find_and_replace` and `describe_and_wire`, are caught
+    only because `replace` and `wire` were added to the verb list in response, which is the
+    shape of the problem rather than a fix: `settlement` evades a list containing `settle`
+    by three letters, and the attacker picks the name.
+
+    **The mitigation is not lexical.** An operator must classify consequential operations
+    explicitly — `ConsequenceGate(consequential={...})` — and a tool nobody classified is
+    already treated as consequential, so the read-verb branch is the only one that fails
+    open. Narrowing it would make every `get_*` a candidate for attribution and multiply
+    cost by the read/write ratio of the workload, which is why it has not simply been
+    removed. Asserted by a test that passes while the bypass works
+    (`test_an_operation_named_only_with_read_verbs_is_never_attributed`).
+12. **Only the first proposed tool call used to be gated (ADV-6, fixed).** Parallel tool
+    calls are ordinary in the OpenAI API. A model emitting `get_balance` alongside
+    `execute_transfer` had the read gated as harmless and the transfer skipped entirely —
+    a complete bypass reachable by an injection saying "check the balance first". The gate
+    now evaluates every proposed call and attributes the first consequential one; ablations
+    compare against the same operation rather than against whatever call arrived first, so
+    a model that merely reorders its calls is not scored as having cancelled the action.
+
+    Recorded here rather than quietly patched because it is the honest answer to a question
+    this document has carried since Phase 0 and never tested, and because the failure was
+    not in the gate's logic at all — it was in what the gate was shown.
 
 ---
 

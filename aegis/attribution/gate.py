@@ -23,15 +23,36 @@ from pydantic import BaseModel
 from aegis.attribution.models import ActionSignature
 
 #: Verbs that imply an external side effect.
+#:
+#: Extended in Phase 4 after attacking the gate. The additions are all verbs that name a
+#: consequential operation in ordinary product vocabulary and were absent: ``checkout``,
+#: ``wire``, ``replace``, ``approve``, ``charge``. Because a consequential match is tested
+#: *before* a read-only one, growing this tuple can only ever move an operation toward
+#: being measured, so additions are safe and omissions are not.
 CONSEQUENTIAL_VERBS = (
     "transfer", "pay", "purchase", "refund", "remit", "settle", "withdraw",
     "send", "email", "post", "publish", "share", "invite", "notify",
     "delete", "remove", "drop", "revoke", "disable", "terminate",
     "create", "update", "write", "modify", "patch", "upload", "grant",
     "execute", "run", "deploy", "install",
+    "checkout", "wire", "charge", "debit", "credit", "buy", "sell", "trade",
+    "order", "book", "reserve", "subscribe", "cancel", "approve", "sign",
+    "submit", "issue", "mint", "replace", "overwrite", "truncate", "reset",
+    "rotate", "archive", "schedule", "move", "rename", "restore", "merge",
 )
 
 #: Operations known to be read-only. Explicit allowlist -- membership must be earned.
+#:
+#: **This list is the gate's residual risk and it is not closable by adding words.** An
+#: operation whose name contains only read verbs is never attributed, so a tool called
+#: ``check_out``, ``find_and_replace`` or ``describe_and_wire`` bypasses the whole system
+#: while doing something consequential. Widening ``CONSEQUENTIAL_VERBS`` raises the bar; it
+#: does not remove the bypass, because the attacker picks the name.
+#:
+#: The mitigation that works is not lexical: an operator must pass consequential operations
+#: explicitly, and a tool nobody classified is already treated as consequential. Naming is a
+#: fallback for unreviewed tools, and for those the read-verb branch is the dangerous
+#: direction. THREAT_MODEL.md section 6 carries this as a demonstrated evasion.
 READ_ONLY_VERBS = (
     "get", "list", "read", "search", "query", "find", "lookup", "fetch",
     "describe", "summarize", "summarise", "view", "check", "count",

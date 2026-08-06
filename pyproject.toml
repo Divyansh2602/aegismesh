@@ -18,6 +18,15 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.7",
 ]
+# Phase 4's evaluation set. Kept out of `dev` on purpose: it pulls in about thirty
+# packages including several provider SDKs, and the whole point of this project running
+# offline for free is lost if installing it becomes mandatory. Everything in `aegis`
+# except `aegis.evaluation.agentdojo` works without it, the tests that need it skip, and
+# `results/phase4_agentdojo.json` is committed so the numbers are readable regardless.
+agentdojo = [
+    "agentdojo>=0.1.35",
+    "pyyaml>=6.0",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

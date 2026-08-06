@@ -67,7 +67,8 @@ signal away.
 | `aegis-warrant` | Mints Ed25519-signed W3C Verifiable Credentials per action. |
 | `aegis-log` | Append-only Merkle transparency log with inclusion & consistency proofs. |
 | `aegis-pep` | Policy enforcement point. Verifies warrants before an action is honored. |
-| `aegis-forge` | Adversarial harness that generates injection attacks to test the above. |
+| `aegis-audit` | Re-runs a warrant's attribution against a disclosed trace. Turns a lying issuer from non-repudiable into falsifiable. |
+| `aegis-forge` | Adversarial harness: the AgentDojo adapter, the θ sweep, and the attacks on our own gate. |
 
 ## Status
 
@@ -82,12 +83,17 @@ See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) and [`docs/SPEC.md`](docs/SPE
 refuses.** The poisoned invoice runs end to end and the payment API rejects it, producing an
 inclusion proof a third party can verify knowing only two public keys.
 
-263 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+**Phase 4 complete** — adversarial evaluation. Measured against AgentDojo, and turned on
+itself: the gate, the monotonicity threshold, and the issuer's own honesty. Two working
+evasions were found in our own design. One is fixed, one is open and documented.
+
+302 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
 pip install -e ".[dev]" && pytest -q \
-  && python demo/phase1_demo.py && python demo/phase2_eval.py && python demo/phase3_demo.py
+  && python demo/phase1_demo.py && python demo/phase2_eval.py \
+  && python demo/phase3_demo.py && python demo/phase4_attack.py
 ```
 
 Then verify the artifacts as an outside auditor would — no shared secret, no call back to
@@ -98,27 +104,88 @@ python tools/verify_warrant.py \
     results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
+Reproducing the AgentDojo evaluation needs one optional extra. It is deliberately *not* in
+`dev`: it pulls in about thirty packages including several provider SDKs, and this project's
+whole point is that it runs offline for free. Everything except that one module works
+without it, its tests skip, and the measured results are committed.
+
+```bash
+pip install -e ".[agentdojo]" && python demo/phase4_eval.py    # a few minutes
+```
+
 The Phase 3 demo runs the attack, then attacks the defence: the operator edits the warrant
 (signature breaks), signs a permit anyway (the payment API denies on its own policy), forks
 the transparency log (an independent witness catches it), and replays a valid warrant onto a
 larger transfer (the arguments binding rejects it).
 
-Measured on the Phase 2 case set (`results/phase2_evaluation.json`):
+## Attacking our own design
 
-```
-precision 1.000   recall 1.000   f1 1.000   localization 1.000
-mean model calls per consequential action  6.9   (worst case 12)
-```
+`python demo/phase4_attack.py` goes after the parts flagged since Phase 0 and never tested.
+Two of the four scenes end with the attacker winning, and both stay in the output.
 
-**Read those numbers narrowly.** Seven hand-built cases against a deterministic mock. They
-prove the engine is wired correctly and catch regressions quickly; they are not a
-generalization claim. Phase 4 runs against AgentDojo's 629 security cases.
+| Attack | Result |
+| --- | --- |
+| Hide a transfer beside a harmless read | **Was a total bypass. Fixed.** Only the *first* proposed tool call was gated, so a model emitting `get_balance` alongside `execute_transfer` had the transfer skipped entirely — never attributed, never warranted, never enforced. An injection saying "check the balance first" was the whole attack. |
+| Name an operation around the gate | **Still works.** `check_out` charges a card; `lookup_settlement` moves money. Both contain only read verbs, so neither is measured. Two other names were caught only because `replace` and `wire` were added to the verb list in the same session — which is the shape of the problem, not a fix. The mitigation is explicit operator classification, not a longer word list. |
+| Operator signs a false attribution | **Caught by replay.** The signature is valid, the leaf is in the log, the witness agrees — and the warrant blames the human for the attacker's account. Re-running the measurement contradicts it. Building that verifier revealed `replay_ref` was under-committing: `mode` and `drilldown_threshold` change the numbers and were not signed over. They are now. |
+| Sweep θ, the monotonicity threshold | **It had never been implemented.** Specified in Phase 0 with a default of 0.15, but every preceding segment counted as a causal parent, so θ multiplied a constant and no value of it changed anything. Now built and swept: **the specified 0.15 is dominated by 0.40**, and the cheap lexical estimator is blind to paraphrased laundering at every θ above zero. |
 
-They also did not catch everything. Enforcing on this evidence in Phase 3 exposed that a
-field no single ablation moved was being reported as a *uniform* distribution — asserting an
-untrusted share that had never been measured — which denied the legitimate payment. The
-harness could not see it because its flag threshold sat above the fabricated value. See
-`docs/SPEC.md` §4.3.
+The last two are the ones worth dwelling on. A specification and an implementation can agree
+line by line and still contain a parameter that does nothing, and a commitment can look
+complete until something actually tries to consume it.
+
+## Measured results
+
+Phase 2's numbers came from seven cases written by the same person who wrote the engine.
+Phase 4 replaces them with contexts built from **AgentDojo**'s security task set — real user
+tasks, real injection goals, real tool output, at real length.
+
+Injection appended to the genuine document, so the engine has to *discriminate* rather than
+pick the only value present (`results/phase4_agentdojo.json`):
+
+| configuration | fields answered | class accuracy | precision | recall | localization | calls/action |
+| --- | --- | --- | --- | --- | --- | --- |
+| segment | 33 / 79 | 1.000 | 1.000 | 0.200 | 0.897 | 35.6 |
+| **+ span** | **68 / 79** | **1.000** | **1.000** | **0.800** | **0.931** | **41.1** |
+| + class | 33 / 79 | 1.000 | 1.000 | 0.200 | 0.897 | 35.7 |
+
+**Read these narrowly, in four specific ways.**
+
+*The model is a surrogate.* Its susceptibility to injection is written down rather than
+discovered, so its attack-success-rate says nothing about GPT-4 or Claude. What it buys is
+exact ground truth: because the mapping from context to action is a known function, class
+accuracy is scored against the class that *actually* supplied each value — computed, not
+annotated. The same adapter runs against a real endpoint; that needs a key and a budget.
+
+*Only 58 of 629 pairs are usable.* The rest have no consequential action, no argument the
+surrogate models, or no argument the injection attacks. A subset selected by what the method
+can measure is a subset selected by the method, and coverage is printed alongside every run.
+
+*"Fields answered" is the honest denominator.* A configuration that answers half the
+questions perfectly is not equal to one that answers all of them perfectly. Segment-only
+ablation is accurate and largely silent; span-level ablation is what makes it *useful*.
+
+*Class-level ablation bought nothing here.* It separates benign from adversarial redundancy
+on constructed cases, but AgentDojo's contexts average 3.24 segments, so almost no class has
+the two segments the check needs. It is off by default and its case rests on a constructed
+test — which is a weaker claim than the design intended, and is the claim the data supports.
+
+### Metrics have to be scored against the right label
+
+The first version of this harness scored precision against "did the attacker's value land"
+and reported fifteen false positives. They were not false positives. AgentDojo's banking
+bills carry the *legitimate* amount inside a retrieved file, and a retrieved file is
+untrusted by control C-19 — so when the engine attributed the amount to untrusted content it
+was right, and the attacker's competing value having lost is a separate fact.
+
+That correction is a finding in itself: **on real task sets the legitimate value of a field
+is routinely untrusted-sourced**, so a policy of "no untrusted influence on `amount`" would
+refuse every bill payment. Untrusted causation is evidence for a policy to weigh, not a
+verdict. The `destination_account` case in the demo works because the operator's own ledger
+independently names the account — a property of that scenario, not of payments generally.
+
+Phase 2's case set is still run, as the fast regression signal
+(`results/phase2_evaluation.json`).
 
 Continuing this work? Start with [`HANDOFF.md`](HANDOFF.md).
 
@@ -147,10 +214,14 @@ another organization can check *before* honoring the request. That is the gap.
 And what it still does not do: a warrant proves an issuer *said* something, not that the
 statement was true. An operator running the issuer can sign a fabricated attribution and
 every verification step passes. The transparency log converts that from undetectable into
-**non-repudiable**, and `replay_ref` makes it *falsifiable* by an auditor who re-runs the
-measurement — but nothing here prevents it. `docs/THREAT_MODEL.md` §6 lists this and eight
-other residual risks, several of them asserted by tests written to pass while the system is
-doing the wrong thing.
+**non-repudiable**, and `aegis/audit/replay.py` makes it *falsifiable* — an auditor granted
+the trace re-runs the measurement and gets a contradiction. Neither prevents it, and replay
+carries its own limits: it needs the trace disclosed, `consistent` means reproducible rather
+than honest, and `contradicted` is evidence rather than intent.
+
+`docs/THREAT_MODEL.md` §6 lists twelve residual risks, several asserted by tests written to
+pass while the system is doing the wrong thing. The convention is deliberate: if one of
+those tests starts failing, a limitation was closed and the documentation is now wrong.
 
 ## License
 

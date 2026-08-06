@@ -7,10 +7,10 @@
     "VerifiableCredential",
     "ActionWarrant"
   ],
-  "id": "urn:uuid:4e6440ef-9431-46b5-88f3-c2e29e466f5b",
+  "id": "urn:uuid:eb78d910-2d1b-4531-a799-7448de771d4e",
   "issuer": "did:web:aegis.acme-bank.example",
-  "validFrom": "2026-08-03T20:07:54Z",
-  "validUntil": "2026-08-03T20:12:54Z",
+  "validFrom": "2026-08-06T10:30:48Z",
+  "validUntil": "2026-08-06T10:35:48Z",
   "credentialSubject": {
     "action": {
       "tool": "treasury.payments",
@@ -21,13 +21,13 @@
         "currency": "sha256:82bb059ec10744f31e0406b8ef7a7a0f3c30c9b18435120fa859b2c0b9627888",
         "destination_account": "sha256:bb9de458269ce97465dedc82d5ff17d3699dd80ffb474fe62abf6bb72f1d2724"
       },
-      "nonce": "nnc_01KZ4KTVGA7V57P2TMEW7MM082",
+      "nonce": "nnc_01KZBA0AMJSB0XZJPPBDCKJWJF",
       "consequential": true
     },
     "mandate": {
       "id": "mnd_01J8Y",
       "principal": "did:web:acme-bank.example:users:r.mehta",
-      "authenticated_at": "2026-08-03T19:51:54Z",
+      "authenticated_at": "2026-08-06T10:14:48Z",
       "auth_method": "oidc+mfa",
       "scope": {
         "action_classes": [
@@ -40,7 +40,7 @@
           ]
         }
       },
-      "expires_at": "2026-08-04T04:07:54Z"
+      "expires_at": "2026-08-06T18:30:48Z"
     },
     "delegation_chain": [
       {
@@ -108,7 +108,7 @@
       },
       "top_contributors": [
         {
-          "segment_id": "seg_01KZ4KTVG6NPGTX2B43JBWBVSX",
+          "segment_id": "seg_01KZBA0AMGXYC8C364EABDEHXS",
           "class": "P3",
           "origin": "mcp://vendor.example/invoice_reader",
           "influence": "1.0000",
@@ -116,7 +116,7 @@
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZ4KTVG6NPGTX2B43JBWBVSX",
+          "segment_id": "seg_01KZBA0AMGXYC8C364EABDEHXS",
           "class": "P3",
           "origin": "mcp://vendor.example/invoice_reader",
           "influence": "1.0000",
@@ -124,21 +124,21 @@
           "granularity": "sentence"
         },
         {
-          "segment_id": "seg_01KZ4KTVG6QZY1QFYCT9EEW0BJ",
+          "segment_id": "seg_01KZBA0AMGFZEAEGKAX7F8NZP6",
           "class": "P0",
           "influence": "1.0000",
           "excerpt_hash": "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZ4KTVG68W4181XJQTFCR5CD",
+          "segment_id": "seg_01KZBA0AMG2HFGWSTEKM031E3T",
           "class": "P1",
           "influence": "0.0000",
           "excerpt_hash": "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZ4KTVG6KK3A71ZB8683XB6R",
+          "segment_id": "seg_01KZBA0AMGM52SPQVRPFCQR2NN",
           "class": "P3",
           "influence": "0.0000",
           "excerpt_hash": "sha256:97bdf732bd599b9deb4d91e4380d5d8ffe203339db0a633c599dd3cd91ef3aa8",
@@ -147,7 +147,7 @@
       ],
       "confidence": "0.5693",
       "replay_ref": {
-        "trace_hash": "sha256:766cbfb08d73192b18278c7241e382c266064163ee0c068cd595208ee2d36437",
+        "trace_hash": "sha256:c1fe376db36d32bdf82535156ae485bfdf619ac32219e8d009c073e8a0939d0f",
         "segment_hashes": [
           "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
           "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
@@ -156,7 +156,9 @@
           "sha256:c89d6eb69756e09e1134b6343cac8ef76b0af85f4403d548853176386dc7fe30"
         ],
         "model_ref": "aegis-mock-1",
-        "method_version": "0.1.0"
+        "method_version": "0.1.0",
+        "mode": "placeholder",
+        "drilldown_threshold": "0.1500"
       }
     },
     "policy_decision": {
@@ -178,9 +180,9 @@
   "proof": {
     "type": "DataIntegrityProof",
     "cryptosuite": "eddsa-jcs-2022",
-    "created": "2026-08-03T20:07:54Z",
+    "created": "2026-08-06T10:30:48Z",
     "verificationMethod": "did:web:aegis.acme-bank.example#key-1",
     "proofPurpose": "assertionMethod",
-    "proofValue": "zZNpoX5CtgNockvKNVdTqZgYZhLEJzFU7f23TZYija5uoxdyQJzMJ63aRypSyDUL4j2McpydF61kQYmrMwF2p7Lv"
+    "proofValue": "z2T21cfsd788jgsdewkZioDu1YDVecCQrDjkM2bdKg7Fsreb9RpV8pqPweVhVY8cspzobmgadjKYVGGYgE8XLDWuY"
   }
 }

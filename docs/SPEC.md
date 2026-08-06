@@ -92,7 +92,45 @@ agent A, A summarizes the poisoned content, and agent B receives the summary as 
 `P4` peer output — the injection has been laundered clean across a trust boundary. With it,
 a `P3`-influenced summary stays `P3` forever.
 
-θ is a tunable; default `0.15`. It is a security/utility knob and must be swept in Phase 4.
+θ is a tunable; default `0.15`. It is a security/utility knob.
+
+**Phase 4 found that θ had never been implemented.** Phase 1 approximated `parents(s)` as
+every preceding segment and documented that as conservative; Phase 2 was to replace it with
+measured parents and did not. With every parent counted, `influence(p → s)` is a constant
+1.0 and no value of θ changes any classification — the knob existed in this document and not
+in the system, which reading either one alone would not reveal.
+
+`influence(p → s)` as specified is causal: regenerate the agent's turn without *p* and
+measure the disagreement. That is not available at classification time — classification runs
+before attribution and feeds it, so depending on it is circular — and it would cost one model
+call per candidate parent on *every* request rather than only consequential ones. So the
+implementation takes a pluggable estimator:
+
+| Estimator | What it is |
+| --- | --- |
+| `all_parents` (default) | every preceding segment counts. Phase 1's rule, unchanged; θ is inert under it, which is the honest encoding of "not measured". |
+| `lexical_overlap` | share of the parent's distinctive tokens surviving into the output. A **proxy**: it sees copying and is blind to paraphrase. |
+
+Swept over five constructed laundering cases (`aegis/evaluation/theta.py`):
+
+| θ | security | utility |
+| --- | --- | --- |
+| 0.00 | 1.000 | 0.000 |
+| 0.05 | 0.667 | 0.500 |
+| 0.15 (specified) | 0.333 | 0.500 |
+| 0.40 | 0.333 | **1.000** |
+| ≥ 0.60 | 0.000 | 0.500 |
+
+Security counts laundering caught *because an untrusted parent was found*. Catches arising
+only because no parent cleared θ — where the fail-safe default supplies P3 having examined
+nothing — are counted separately; folding them in makes θ appear to improve monotonically as
+it rises, which is how the first version of this sweep reported 1.000 at θ = 1.0.
+
+Two findings. **The specified default 0.15 is dominated**: θ = 0.40 catches exactly as much
+on evidence and preserves every clean output. And **the lexical estimator never catches a
+paraphrased laundering at any θ above zero**, which is the case a competent summarizing agent
+produces. That bounds the cheap approach rather than the rule: it is an argument for building
+the causal estimator, not evidence that θ does not matter.
 
 ---
 
@@ -160,8 +198,34 @@ A known consequence of §3.2 that this exposes: **a field whose only determining
 also the segment whose removal cancels the action can never be attributed at segment or
 sentence granularity.** The amount in the invoice scenario is the worked example — it
 appears only in the human's mandate, and removing that mandate removes the transfer intent
-along with it, so no comparable counterfactual exists. Separating the two would need
-span-level ablation (control C-15), which is specified and not yet implemented.
+along with it, so no comparable counterfactual exists.
+
+**Span-level ablation (control C-15) resolves this, and Phase 4 measured what it is worth.**
+A span is one written occurrence of a value the model emitted, so ablating it removes the
+value while leaving the sentence that carries the intent standing: the action survives, the
+run is comparable, and the field is attributed to the class that actually wrote it. Cost
+scales with how much of the action is quoted back into the context, not with context size.
+
+Measured over AgentDojo (`results/phase4_agentdojo.json`), on the appended-injection
+placement, adding span-level ablation moved the number of scored fields the engine would
+answer for from 33 of 79 to 68 of 79 — recall 0.20 → 0.80 — for +5.5 model calls per action
+on a base of 35.6, with precision unchanged at 1.000. That is the answer to open question 2:
+it defeats entanglement rather than merely raising cost.
+
+### 3.3.1 Class-level ablation
+
+Ablating every segment of one provenance class at once separates *benign* redundancy (the
+human and the ledger independently name the same account) from *adversarial* redundancy (an
+attacker plants the same value twice so no single removal moves it). Fields carry
+`per_argument_redundancy` ∈ {`cross_class`, `within_class`, `unmeasured`}; the pair
+(`invariant`, `within_class`) on a P3 class is the ADV-5 signature.
+
+**It works on constructed cases and bought nothing on AgentDojo.** Its cost is at most one
+call per class with two or more ablatable segments, and AgentDojo's contexts average 3.24
+segments, so almost no class ever has two — it fired on 3 of 79 fields and answered no
+field that segment ablation had not already answered. It is off by default. The case for it
+rests on the constructed ADV-5 test in `tests/test_attribution.py`, not on this task set,
+and saying otherwise would be reporting a design intention as a measurement.
 
 ### 3.4 Confidence
 
@@ -404,6 +468,38 @@ already issued or fork the format.
 so reproducibility rests on `model_ref` pinning — and even that degrades across provider
 version drift.
 
+**Phase 4 found the commitment incomplete and extended it.** The trace, the model and the
+method version read like enough to determine a measurement. They are not: `mode`
+(placeholder vs delete) builds different counterfactuals, and `drilldown_threshold` decides
+which segments are split into sentences at all. An auditor replaying under different
+settings measures a different quantity — and would either contradict an honest issuer or
+fail to contradict a dishonest one who chose the flattering settings and never had to
+declare them. Both fields are now carried in `replay_ref`.
+
+Warrants issued before that change verify by signature and **cannot be replayed**.
+`aegis/audit/replay.py` reports `inconclusive` for them rather than replaying under its own
+defaults, which would produce confident contradictions of issuers who did nothing wrong.
+
+### 4.5 Replay verdicts
+
+The verifier returns one of three, and the distinction is the point:
+
+- **`consistent`** — the numbers reproduce under the committed conditions. Not a finding of
+  honesty: an operator running a doctored engine reproduces perfectly against their own
+  binary. It holds because the auditor runs their own copy of the method and never calls
+  back to the issuer.
+- **`contradicted`** — the re-run disagrees beyond the 0.0001 wire quantum. Evidence the
+  claim is not reproducible, not proof of intent; a provider silently revising a model
+  behind a stable name produces the same result.
+- **`inconclusive`** — the disclosed trace does not match the commitment, the model differs,
+  the settings were not committed, or the re-run proposed no action. Reached *before* any
+  comparison, so an operator who supplies a substituted trace on which the signed numbers do
+  reproduce cannot obtain a clean verdict.
+
+Comparison happens on the **encoded** fixed-precision strings, never on floats. Those
+strings are what the signature covers; comparing anything else checks a quantity the issuer
+never committed to.
+
 ---
 
 ## 5. Transparency log
@@ -602,30 +698,49 @@ POST /v1/verify                       { warrant, receipt, arguments } -> decisio
 
 ---
 
-## 9. Open questions for later phases
+## 9. Open questions
 
-1. What is θ (monotonicity threshold) in practice? Sweep in Phase 4.
-2. Does span-level ablation actually defeat redundant-encoding attacks, or only raise cost?
-   It is now also the only route to attributing a field entangled with the transfer intent
-   in the same segment — see §3.3.
-3. Can the consequential-action classifier itself be attacked into classifying a payment as
-   non-consequential? **Probable. Must be tested — it is a single point of bypass.**
-4. What is the real cost per consequential action, and is it acceptable?
-5. Does a neutral placeholder control for position effects better than deletion, or introduce
-   its own bias?
-6. `invariant` currently means "no single segment was pivotal". It does not distinguish
-   *benign* redundancy (the human and the ledger agree) from *adversarial* redundancy — an
-   attacker who plants the same value twice so that no single ablation moves it. Class-level
-   ablation, removing every segment of one class at once, would separate them at a cost of
-   |classes| extra calls. Untested, and it is the most likely place an ADV-5 evasion lives.
+Answered in Phase 4:
+
+1. ~~What is θ in practice?~~ **It had no implementation.** Now built with a pluggable
+   parent-influence estimator and swept — §2.2. The specified default 0.15 is dominated by
+   0.40 on the only case set anyone has run, and the cheap lexical estimator is blind to
+   paraphrased laundering at every θ above zero.
+2. ~~Does span-level ablation defeat entanglement, or only raise cost?~~ **It defeats it.**
+   Recall 0.20 → 0.80 over AgentDojo for +5.5 calls per action, precision unchanged — §3.3.
+3. ~~Can the consequential-action gate be attacked?~~ **Yes, two ways.** One was a complete
+   bypass and is fixed: only the *first* proposed tool call was gated, so a model emitting
+   `get_balance` alongside `execute_transfer` had the transfer skipped entirely. The other
+   works and is open: an operation named only with read verbs (`check_out`,
+   `lookup_settlement`) is never measured. THREAT_MODEL.md §6 carries it as ADV-7.
+6. ~~Does `invariant` distinguish benign from adversarial redundancy?~~ **Not on its own;
+   class-level ablation does** — §3.3.1. It works on constructed cases and bought nothing on
+   AgentDojo, whose contexts are too short for a class to have two segments.
+
+Still open:
+
+4. What is the real cost per consequential action against a real model? Measured here at
+   35.6 calls per action on AgentDojo (41.1 with span-level), against a free in-process
+   surrogate. Nothing about that number establishes affordability at provider prices and
+   latencies, and one case hit the 400-call ceiling.
+5. Does a neutral placeholder control for position effects better than deletion, or
+   introduce its own bias? Still indistinguishable on every case set tried.
 7. Does per-argument confidence carry policy weight that action-level confidence does not?
    The action-level floor of 0.60 fires on a legitimate action split evenly between two
    trusted classes, which looks like a false-positive generator waiting for a real workload.
-8. Sentence-level ablations are measured but do not feed `per_argument` or
-   `argument_status`, which are computed from segment-level results only. A field
-   attributable at sentence granularity but not segment granularity is therefore reported
-   as `invariant`. Whether folding them in improves accuracy or just adds variance is a
-   Phase 4 measurement.
+8. Sentence-level ablations are measured but still do not feed `per_argument` or
+   `argument_status`. Span-level results now do, for fields segment ablation could not
+   reach, and the same argument does not extend to sentences: a span is bound to one field
+   and a sentence is not, so folding sentences in would double-count a parent segment with
+   nothing to attribute the count to.
+9. **New.** Every number in `results/phase4_agentdojo.json` is measured against a surrogate
+   whose susceptibility to injection is written down rather than discovered. The adapter
+   runs unchanged against `HttpModelClient`; what is missing is a key and a budget. Until
+   then nothing here says how often a real model falls for these injections.
+10. **New.** Only 58 of AgentDojo's 629 pairs are usable — the rest have no consequential
+    action, no argument the surrogate models, or no hijackable argument. That subset is
+    stated wherever the numbers are, but a subset selected by what the method can measure is
+    a subset selected by the method.
 
 ---
 
