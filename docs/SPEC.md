@@ -460,9 +460,9 @@ trace hash, the model reference, and the method version — so that an auditor g
 underlying trace can re-run the ablation and compare. That does not prevent a lie; it makes
 one **falsifiable**, which is the strongest property available short of attested execution.
 
-The fields are emitted from Phase 3 even though the re-run verifier is Phase 4 work,
-because they sit under the signature: adding them later would invalidate every warrant
-already issued or fork the format.
+The fields were emitted from Phase 3, a phase before the re-run verifier existed, because
+they sit under the signature: adding them later would invalidate every warrant already
+issued or fork the format. That reasoning was right and did not go far enough — see below.
 
 `seed` is recorded, not relied upon. Many hosted APIs accept a seed without honouring it,
 so reproducibility rests on `model_ref` pinning — and even that degrades across provider

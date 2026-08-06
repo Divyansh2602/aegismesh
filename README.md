@@ -5,6 +5,46 @@
 > An agent action without a warrant is an unsigned transaction.
 > AegisMesh makes agents prove *why*, not just *who*.
 
+![phase](https://img.shields.io/badge/phase-4%20of%206%20complete-2ea44f)
+![tests](https://img.shields.io/badge/tests-317%20passing-2ea44f)
+![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![standards](https://img.shields.io/badge/W3C%20VC%20%C2%B7%20RFC%206962%20%C2%B7%20RFC%208785-informational)
+
+```bash
+pip install -e ".[dev]" && pytest -q && python demo/phase3_demo.py
+```
+
+That runs the whole thing offline against a bundled deterministic model — no API key, no
+cost, no network. The poisoned invoice goes in and the payment API refuses it.
+
+---
+
+## Reading this repo
+
+If you have five minutes, in this order:
+
+| | |
+| --- | --- |
+| **What it does** | `python demo/phase3_demo.py` — the attack, the refusal, then four attacks on the defence itself |
+| **What it gets wrong** | `python demo/phase4_attack.py` — four attacks on our *own* design; two of them succeed |
+| **Why it's built this way** | [`HANDOFF.md`](HANDOFF.md) § "design decisions that carry this project" — eleven places the obvious implementation was wrong |
+| **What it claims** | [`docs/SPEC.md`](docs/SPEC.md) for the format and the maths, [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §6 for the twelve residual risks |
+
+```
+aegis/
+  provenance/   P0-P4 classification, tool pinning, the monotonicity rule and its threshold
+  attribution/  leave-one-out ablation at segment, sentence, span and class granularity
+  warrant/      Ed25519-signed W3C Verifiable Credentials (eddsa-jcs-2022)
+  log/          RFC 6962 Merkle log, inclusion + consistency proofs, independent witness
+  policy/       declarative rules as data, shared by issuer and enforcement point
+  pep/          the eleven-step admission algorithm
+  audit/        re-runs a warrant's attribution to check the issuer told the truth
+  evaluation/   AgentDojo adapter, deterministic surrogate model, scoring, the theta sweep
+tools/
+  verify_warrant.py   standalone auditor: 2 public keys, 1 root hash, nothing else
+```
+
 ---
 
 ## The problem
@@ -72,22 +112,17 @@ signal away.
 
 ## Status
 
-**Phase 0 complete** — threat model and specification.
-See [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) and [`docs/SPEC.md`](docs/SPEC.md).
+| Phase | State | What landed |
+| --- | --- | --- |
+| 0 — Threat model & spec | ✅ | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md), [`docs/SPEC.md`](docs/SPEC.md) |
+| 1 — Interception & provenance | ✅ | OpenAI-compatible proxy, P0–P4 tagging, conduit-vs-closed-world tool trust |
+| 2 — Causal attribution | ✅ | Leave-one-out ablation, per-argument influence, necessity kept separate |
+| 3 — Warrants, log, enforcement | ✅ | **The system refuses.** Poisoned invoice runs end to end, the payment API rejects it, and an inclusion proof survives verification by a third party holding two public keys |
+| 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
+| 5 — Console & compliance export | ⬜ | Next |
+| 6 — Paper, patent, standards | ⬜ | — |
 
-**Phase 1 complete** — interception and provenance tagging.
-
-**Phase 2 complete** — causal attribution and the evaluation harness.
-
-**Phase 3 complete** — warrants, transparency log, and enforcement. **The system now
-refuses.** The poisoned invoice runs end to end and the payment API rejects it, producing an
-inclusion proof a third party can verify knowing only two public keys.
-
-**Phase 4 complete** — adversarial evaluation. Measured against AgentDojo, and turned on
-itself: the gate, the monotonicity threshold, and the issuer's own honesty. Two working
-evasions were found in our own design. One is fixed, one is open and documented.
-
-302 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+317 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -223,6 +258,25 @@ than honest, and `contradicted` is evidence rather than intent.
 pass while the system is doing the wrong thing. The convention is deliberate: if one of
 those tests starts failing, a limitation was closed and the documentation is now wrong.
 
+## Standards and prior art this builds on
+
+| | |
+| --- | --- |
+| W3C Verifiable Credentials Data Model 2.0 | the warrant is a VC, not a bespoke envelope |
+| RFC 8785 — JSON Canonicalization Scheme | so a verifier in another language reproduces our exact signed bytes |
+| RFC 6962 — Certificate Transparency | the log's leaf/node hashing and both proof types |
+| EU AI Act Article 12 | the record-keeping obligation this exists to help discharge |
+| CoSAI · DIF KYA-OS · DIDs | agent identity and delegation, conformed to rather than reinvented |
+| CausalArmor · AgentSentry · Causal Agent Replay | counterfactual attribution, cited rather than claimed |
+
 ## License
 
-TBD.
+**Not yet chosen.** Until one is added, default copyright applies and this is
+"all rights reserved" — readable, but not reusable. If you want that changed, open an issue
+and say what you need.
+
+## Author
+
+Built by [Divyansh Gupta](https://github.com/Divyansh2602) as a security-research and
+portfolio project. The engineering log — every decision, every reversal, and the reasoning
+behind both — is in [`HANDOFF.md`](HANDOFF.md).
