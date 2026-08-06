@@ -1,0 +1,39 @@
+AegisMesh — provenance-bound action control for AI agents
+Copyright 2026 Divyansh Gupta
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+--------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------
+
+No third-party source is vendored into this repository. Everything under
+aegis/ is original work, including the RFC 6962 Merkle tree and the RFC 8785
+canonicalization, both of which were implemented by hand rather than taken
+from a library — see docs/SPEC.md for why.
+
+Runtime dependencies are declared in pyproject.toml and installed from PyPI
+under their own licenses (cryptography: Apache-2.0 / BSD-3-Clause; fastapi,
+pydantic, pydantic-settings: MIT; httpx, uvicorn: BSD-3-Clause).
+
+aegis/evaluation/agentdojo.py is an *adapter* for AgentDojo, an optional
+dependency installed separately and not redistributed here. AgentDojo is
+Copyright (c) 2024 Edoardo Debenedetti, Jie Zhang, Mislav Balunovic, Luca
+Beurer-Kellner, Marc Fischer and Florian Tramèr, and is MIT licensed. The
+task prompts, injection goals and environment data used to produce
+results/phase4_agentdojo.json originate from that project; the numbers in
+results/ are our own measurements over it.
+
+The ImportantInstructionsAttack jailbreak template reproduced verbatim in
+aegis/evaluation/agentdojo.py is AgentDojo's, retained unchanged so the
+attack being measured is theirs rather than a paraphrase of it.

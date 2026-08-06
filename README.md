@@ -9,6 +9,7 @@
 ![tests](https://img.shields.io/badge/tests-317%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
+![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![standards](https://img.shields.io/badge/W3C%20VC%20%C2%B7%20RFC%206962%20%C2%B7%20RFC%208785-informational)
 
 ```bash
@@ -271,9 +272,18 @@ those tests starts failing, a limitation was closed and the documentation is now
 
 ## License
 
-**Not yet chosen.** Until one is added, default copyright applies and this is
-"all rights reserved" — readable, but not reusable. If you want that changed, open an issue
-and say what you need.
+[Apache License 2.0](LICENSE). Copyright 2026 Divyansh Gupta.
+
+Chosen over MIT for two reasons specific to this project. Apache-2.0 carries an **express
+patent grant and a patent-retaliation clause**, which matters for a repository whose whole
+claim is a *method*; MIT is silent on patents, and silence is not a licence. And it is the
+terms W3C, DIF and IETF working groups expect, so it keeps the standards path in §6 open
+rather than closing it before it starts.
+
+One consequence, stated plainly: §3 grants every user a royalty-free licence to any patent
+claims of mine that this code necessarily infringes. That is a deliberate trade — publishing
+the repository already starts the novelty clock in most jurisdictions, and this project's
+value is credibility and adoption rather than exclusivity.
 
 ## Author
 
