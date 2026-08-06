@@ -7,10 +7,20 @@
 
 ## Read these first
 
-1. [`README.md`](README.md) — the pitch and the honest novelty positioning
-2. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — adversaries, controls, OWASP + EU AI Act mapping
-3. [`docs/SPEC.md`](docs/SPEC.md) — the Action Warrant format and all the maths
-4. This file — where things stand and what to do next
+**Picking this up in a new session? Read *this file* end to end before anything else.** It is
+the only document that carries what the code cannot tell you: why each decision went the way
+it did, which limitations are deliberate, what is stale, and what to build next. The others
+describe the system; this one describes the *project*.
+
+1. **This file** — status, the eleven design decisions, Phase 5's scope, conventions
+2. [`README.md`](README.md) — the pitch and the honest novelty positioning
+3. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — adversaries, controls, twelve residual
+   risks, OWASP + EU AI Act mapping
+4. [`docs/SPEC.md`](docs/SPEC.md) — the Action Warrant format, the maths, and §9's open
+   questions with their Phase 4 answers
+
+Then run the verification command below before changing anything, so you know whether you are
+debugging your own change or something that was already broken.
 
 ## Verify the state in one command
 
@@ -370,29 +380,70 @@ Decisions worth defending:
 
 ## Phase 5 — what to build next
 
-Goal: make the evidence readable by someone who is not going to read the JSON — a compliance
-officer, an auditor, a regulator under Article 12.
+**Target chosen 2026-08-06: a live demo people can click.** Not a pilot, not production.
+That decision is what makes the rest of this section short, so it is worth stating why.
 
-**Definition of done:** an investigator can take a warrant and a trace and answer "why did
-this action happen, and who caused each field?" without reading any code, and export a
-record that satisfies Article 12's traceability requirement.
+**Definition of done:** a stranger opens a URL, runs the poisoned-invoice scenario, watches
+the payment API refuse it, then attacks the system themselves and sees two of those attacks
+succeed.
+
+### Why the deployment blockers mostly do not apply
+
+Surveyed against the code, not assumed. Everything below is real and none of it blocks a
+demo:
+
+| Blocker | Where | Blocks a demo? |
+| --- | --- | --- |
+| Nothing persists | `log/log.py` `_leaves`/`_entries`, `pep/replay.py` `_seen`, proxy trace store — all in-memory | **No.** A demo that resets per session is honest, and the page should say so |
+| Keys from a fixed string | every demo calls `SigningKey.from_seed(...)` | **No.** Deterministic keys make the demo reproducible |
+| Real-model cost unmeasured | 35.6–41 calls/action, all against the surrogate | **No.** The surrogate is the point here |
+| Single witness, per-PEP replay cache | residual risks 8 and 9 | **No.** The Phase 3 demo already shows the witness catching a fork |
+| ADV-7 gate evasion open | `attribution/gate.py` read-verb branch | **No** — arguably a feature to show off |
+| No CI, container or manifests | repo root | **Yes.** This is the actual work |
+
+**For a pilot or production target every one of those becomes blocking, and the durable log
+is the worst of them:** a transparency log that can silently restart empty voids its own
+tamper-evidence claim, which is the whole product. Do not let a demo's success blur that.
+
+The one genuine advantage: everything runs offline with no API key, so the demo has no
+secrets to manage, no per-visitor cost, and cannot be abused to burn anyone's budget. That
+falls directly out of the Phase 1 decision to bundle a mock model.
 
 ### Build order
 
-1. **A read-only console** over the artifacts that already exist. Warrant, receipt,
-   inclusion proof, per-argument attribution with `argument_status` and
-   `per_argument_redundancy` shown as distinct states rather than flattened into a score.
-   The per-field three-way status is the thing a UI can express that a number cannot.
-2. **The replay verdict as a first-class view.** `consistent` / `contradicted` /
-   `inconclusive` with the reason attached — this is the only screen in the product where
-   the operator is the subject rather than the author.
-3. **Article 12 export.** Map the warrant fields onto the record-keeping obligations
-   explicitly, and say in the export which obligations it does *not* discharge.
-4. **Real-model measurement** (open question 9). The adapter already runs against
-   `HttpModelClient`; what is missing is a key and a budget. This is the single largest
-   upgrade available to the credibility of every number in `results/`.
-5. **Classifier adversarial evaluation** (residual risk 1). Phase 4 measured attribution
-   given correct classification. Nobody has attacked the classifier's P0 boundary.
+1. **A read-only console** over the artifacts that already exist. Provenance-classified
+   context coloured P0–P4; per-argument attribution rendering `attributed` / `invariant` /
+   `unknown` as genuinely distinct states; the signed warrant; the Merkle inclusion proof;
+   the PEP decision with the rules that fired. The three-way per-field status is the thing a
+   UI can express that a number cannot — see design decision 6.
+2. **"Attack it yourself" buttons** — the four Phase 3 scenes and the four Phase 4 attacks,
+   run live. **The two that succeed stay in, prominently.** That is the most interesting
+   thing on the site and the reason anyone will trust the rest of it.
+3. **The replay verdict as a first-class view.** `consistent` / `contradicted` /
+   `inconclusive` with the reason attached — the only screen where the operator is the
+   subject rather than the author.
+4. **Dockerfile, CI, host.** Railway or Fly take a Python container directly; free tier is
+   ample because there is no inference cost.
+
+### Two decisions taken while scoping this
+
+- **Drop the Next.js plan for a single FastAPI service rendering server-side HTML.** No build
+  step, one runtime, one container. Next.js buys interactivity this demo does not need and
+  doubles the deployment surface. Wanting it for the résumé line is a legitimate reason to
+  overrule this — it is just not a technical one. *Not yet confirmed by Divyansh.*
+- **The console must import `aegis` and drive the real code paths.** A page that re-renders a
+  simulation of the pipeline would be worthless and, on a project whose entire subject is
+  verifiable evidence, actively dishonest.
+
+### Deferred past Phase 5, still unscheduled
+
+- **EU AI Act Article 12 export** — map warrant fields onto the record-keeping obligations,
+  and state which obligations it does *not* discharge.
+- **Real-model measurement** (open question 9). The adapter already runs against
+  `HttpModelClient`; it needs a key and a budget. Single biggest credibility upgrade
+  available to every number in `results/`.
+- **Classifier adversarial evaluation** (residual risk 1). Phase 4 measured attribution
+  *given* correct classification. Nobody has attacked the P0 boundary.
 
 ### Watch out for
 
@@ -415,9 +466,20 @@ record that satisfies Article 12's traceability requirement.
   `test_a_suppressed_denial_leaves_no_gap`. Do not "fix" these; they are the honesty
   mechanism. If one starts failing, a limitation was closed and the docs need updating.
 - Run `ruff check .` and `pytest -q` before every commit.
-- **One commit per phase**, with a message explaining the decisions, not the diff.
-  Existing history: `8fe169c` Phase 0, `6a06800` Phase 1, Phase 2, Phase 3.
-- Local commits only. Nothing has been pushed anywhere; don't push without asking.
+- **One commit per phase**, with a message explaining the decisions, not the diff. Every
+  commit hash in this file's earlier history is stale — the history was rewritten on
+  2026-08-06 (see below), so use `git log` rather than any hash quoted in prose.
+- **Divyansh is the sole author. Never add a `Co-Authored-By` trailer**, and commit as
+  `Divyansh Gupta <divyansh2622005@gmail.com>` — his global git config already sets this, so
+  just do not override it. Both were retrofitted across all seven commits with
+  `git filter-branch` + force push on 2026-08-06 and verified through the GitHub API. This is
+  the convention most likely to regress silently, because tooling defaults tend to add the
+  trailer. After any history rewrite, also delete `refs/original/refs/heads/<branch>`:
+  filter-branch leaves it behind, it never appears in `git branch`, and it pins the old
+  history indefinitely.
+- **Remote is `github.com/Divyansh2602/aegismesh`, currently private.** He has asked for it to
+  be public and wants to review GitHub's rendering first, so treat flipping it as expected
+  rather than as a new decision. Push freely to `main`; ask before any further force push.
 - Honesty over polish. Where something does not work, say so in the docs — the threat
   model's residual-risk section and this file's caveat on Phase 2 numbers are the pattern.
 
