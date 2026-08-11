@@ -1,6 +1,6 @@
 # AegisMesh — Session Handoff
 
-**Written:** 2026-08-06 · **Updated:** 2026-08-12 · **Phase 5a complete**
+**Written:** 2026-08-06 · **Updated:** 2026-08-12 · **Phase 5 complete**
 **Repo:** `C:\Users\Divyansh Gupta\Documents\everything`
 
 ---
@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **350 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **372 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -92,8 +92,8 @@ nothing.
 | 3 — Warrants, log, enforcement | **Done** | `aegis/warrant/`, `aegis/log/`, `aegis/policy/`, `aegis/pep/`, `tools/verify_warrant.py` |
 | 4 — Adversarial evaluation | **Done** | `aegis/evaluation/{agentdojo,surrogate,phase4,theta}.py`, `aegis/audit/`, `aegis/provenance/monotonicity.py` |
 | 5a — Public API, endpoints | **Done** | `aegis/api/`, `aegis/log/storage.py`, `tests/test_api.py`, `tests/test_log_storage.py` |
-| 5b — Public API, streaming & abuse controls | **Next** | SSE over the events every run already records; per-IP limits, session budgets, C-18 surfaced in the UI |
-| 6 — Console | Pending | Next.js + TypeScript, responsive, interactive |
+| 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
+| 6 — Console | **Next** | Next.js + TypeScript, responsive, interactive |
 | 7 — Ship it | Pending | containers, CI, hosting, the public launch |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
@@ -156,14 +156,16 @@ aegis/
   attribution/  gate.py       consequential-action gate (cost control)
                 ablation.py   reconstruction, placeholder/delete, sentence + span + class
                 engine.py     leave-one-out ablation, influence/necessity/argument_status
+                              plus AblationObserver: one event per measurement, hashes only
                 client.py     InProcessMockClient / HttpModelClient
   audit/        replay.py     re-runs a warrant's attribution against a disclosed trace
-  api/          app.py        sessions, runs, shared log, auditor artifact downloads
+  api/          app.py        sessions, runs, SSE, shared log, auditor artifact downloads
                 runner.py     the pipeline driven once, every stage recorded as an event
                 scenarios.py  presets = the labelled case set; visitor runs stay unlabelled
                 session.py    per-visitor issuer key, policy, PEP, witness; shared log
-                runs.py       Run, RunEvent, bounded per-session RunStore
-                config.py     bounds; the abuse controls proper are 5b
+                runs.py       Run, RunEvent, per-subscriber wake-up flags, bounded RunStore
+                limits.py     named controls; every refusal says which one refused
+                config.py     every bound, with the reasoning at the field
   evaluation/   cases.py      labelled ground-truth cases
                 harness.py    precision/recall/localization/cost
                 agentdojo.py  adapter for AgentDojo's security suites (optional extra)
@@ -460,6 +462,7 @@ post-restart one verified.
 POST /v1/sessions                             your own issuer key, policy, PEP, witness
 POST /v1/runs                                 preset name, or custom + your own document
 GET  /v1/runs/{id}                            status and the ordered event log
+GET  /v1/runs/{id}/events                     SSE; resumable by Last-Event-ID or ?after=
 GET  /v1/runs/{id}/{context|proposal|attribution|warrant|receipt|decision}
 GET  /v1/runs/{id}/artifacts                  the three auditor files, pinned as one snapshot
 GET  /v1/runs/{id}/artifacts/{name}.json      one file, as a download
@@ -526,20 +529,93 @@ on the exact path durability exists for. It passed every test that appended firs
 `test_an_empty_injected_log_is_not_replaced` is the regression. The general form: `or`-defaulting
 is safe for `None` and wrong for anything with a length.
 
-## Phase 5b — streaming and the abuse controls
+## Phase 5b — streaming and the abuse controls, as built
 
-**Definition of done:** a visitor watches ablations arrive one by one, and a hostile visitor
-cannot take the service down.
+**Definition of done, met:** a subscriber watches ablations arrive one at a time, and every
+refusal names the control that refused it.
 
-1. **SSE at `GET /v1/runs/{id}/events`.** Every run already records an ordered event log with
-   sequence numbers; 5b is the transport plus an `asyncio.Event` to wake waiters. The
-   per-ablation events need a callback hook on `AttributionEngine`, which does not have one
-   yet — that is the only library change 5b requires.
-2. **Per-IP rate limits and a session-scoped model-call budget**, on top of the engine's
-   existing `max_model_calls` (C-18). Use the existing knob rather than inventing a limiter,
-   and say in the response *which* control refused, because a limit that demonstrates the
-   threat model is worth more than one that hides it.
-3. **Request size caps at the app layer**, not only on the injection field.
+### The engine grew one hook
+
+`AttributionEngine(observer=...)` — an `AblationObserver` called once per completed
+measurement with an `AblationEvent`. The only library change Phase 5 required.
+
+- **Called at every `_measure` site, including sentence-level ones whose results are then
+  discarded below the noise floor.** A consumer counting events against `model_calls` would
+  otherwise come up short with no way to know why: a counterfactual that was tested and found
+  uninteresting still happened. `test_the_ablation_events_reconcile_with_the_reported_cost`
+  pins the two together.
+- **Synchronous, and exceptions are not caught.** Awaitable would let a slow subscriber stall
+  the attribution it is watching. Swallowing would leave an attribution running unobserved
+  while reporting a total nobody could reconcile with what they saw.
+- **Hashes, never text** — the same rule as `Contributor`. A progress feed must not become
+  the disclosure channel; `test_ablation_events_carry_hashes_and_never_text` uses a canary.
+- **`comparable` rides on every event.** `invariant` and `unknown` both present as zero
+  influence, and a consumer forced to tell them apart from the numbers would get it wrong.
+  That is design decision 6 arriving on the wire.
+
+### The stream
+
+`GET /v1/runs/{id}/events`, `text/event-stream`. Resumable by `Last-Event-ID` (which
+`EventSource` sends automatically on reconnect) or `?after=`; the run retains its event log,
+so a reconnect is a replay rather than a gap. A malformed `Last-Event-ID` replays everything
+rather than 400-ing — it arrives from an automatic reconnect, where there is nobody to show
+an error to, and replaying too much is recoverable while skipping is not.
+
+- **One wake-up flag per subscriber, not one shared `Event`.** A shared flag must be cleared
+  before waiting, and whichever consumer clears it can swallow a notification another had not
+  yet seen. Two people watching one run is not an edge case; it is a second browser tab.
+- **The ordering that makes it correct:** subscribe, then drain, then check status. The
+  waiter is registered before the first drain, so an event emitted while we are yielding
+  cannot be missed; and status is only consulted after a full drain, so a subscriber can
+  never see `complete` with events outstanding. `run.emit("end", ...)` happens in a `finally`,
+  so a failed run still wakes and closes its streams.
+- **Heartbeat comment frames** every 15s, and `X-Accel-Buffering: no` — nginx buffers proxied
+  responses by default, which turns a live stream into one delivery at the end.
+
+**What could not be demonstrated, and why.** Against the bundled in-process mock an entire
+attribution finishes in microseconds, so every frame of a real run arrives in the same
+millisecond: a wall-clock trace proves the stream *delivers*, not that it is incremental
+rather than buffered-then-flushed. That property is instead asserted structurally, by driving
+`_event_stream` directly and holding the emitting side still between pulls
+(`TestTheStreamIsIncrementalRatherThanBuffered`). It becomes visible on its own the moment a
+slower model is behind it — which is open question 9's territory, not this phase's.
+
+### The controls, and why each one exists
+
+`aegis/api/limits.py`. Every refusal carries the control's id, its name, where it comes from,
+and the T12 note — because a limit that names itself demonstrates the threat model, while a
+bare 429 is a workaround for it.
+
+| id | what it bounds | why it is not covered by the others |
+| --- | --- | --- |
+| `C-18` | model calls per attribution | the design's own control, already in the engine |
+| `C-18/session` | model calls per visitor | C-18 bounds each run; nothing bounded the number of runs |
+| `API-RATE` | arrivals per client per minute | bounds *when*, where the budgets bound *how much* |
+| `API-CONC` | attributions running at once | the totals bound cumulative cost; this bounds instantaneous load, which is what actually stalls the box |
+| `API-CONTEXT` | submitted context length | bounds what the engine is asked to ablate |
+| `API-SIZE` | request body bytes | bounds what the process ingests; a body under 64KB can still be a context costing hundreds of calls |
+| `API-STREAMS` | live SSE connections per session | connections are the other exhaustible resource |
+
+- **The session budget is checked at admission, so overshoot is bounded by one run's C-18 —
+  stated rather than papered over.** Aborting an attribution halfway would mean issuing a
+  warrant over partial evidence, which is worse than a small overshoot. Confirmed live: a
+  session with a budget of 5 reported "spent 8 model calls of 5" and refused the next run.
+- **The limiter is itself keyed on attacker-controlled input**, so the client table is capped
+  and evicted oldest-first. A rate limiter that can be made to exhaust the host has not
+  limited anything.
+- **A rejected arrival does not advance the window.** Recording rejected attempts would let a
+  client hammering the endpoint extend its own penalty indefinitely and never recover.
+- **`X-Forwarded-For` is ignored unless `trust_forwarded_for` is set.** Honouring it
+  unconditionally lets any caller pick their own rate-limit bucket by sending a header, which
+  is worse than having no limiter because it looks like one. **Phase 7 must set this** if the
+  service ends up behind a proxy, or every visitor will share one bucket.
+- **Check order is arrival rate, then session budget, then scenario parsing.** Parsing first
+  would let a client over its limit still drive the classifier.
+- **`session_model_call_budget` bounds memory as well as cost**, which is the less obvious
+  half: each ablation appends one event to its run, so retained events are
+  `max_sessions × session_model_call_budget` — 200 × 1500 at current defaults. Raising either
+  without doing that multiplication is how a service that survives an attacker falls over
+  under ordinary popularity.
 
 ### Still true, and still binding
 

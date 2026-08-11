@@ -10,7 +10,9 @@ both now means the streaming transport is a transport, not a redesign.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import OrderedDict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -48,6 +50,14 @@ class Run:
     task: asyncio.Task | None = None
     """The background task executing this run, held so the event loop cannot collect it."""
 
+    model_calls: int = 0
+    """Ablations issued so far, counted live rather than read off the final result.
+
+    The session budget needs a number that exists *during* a run, not only after one.
+    """
+
+    _waiters: list[asyncio.Event] = field(default_factory=list, repr=False)
+
     def emit(self, type_: str, data: dict) -> RunEvent:
         event = RunEvent(
             seq=len(self.events),
@@ -56,7 +66,25 @@ class Run:
             data=data,
         )
         self.events.append(event)
+        for waiter in self._waiters:
+            waiter.set()
         return event
+
+    @contextlib.contextmanager
+    def subscribe(self) -> Iterator[asyncio.Event]:
+        """One private wake-up flag per stream, removed when the stream ends.
+
+        Per subscriber rather than one shared ``Event`` because a shared flag has to be
+        cleared before waiting, and whichever consumer clears it can swallow a
+        notification another consumer had not yet seen. Two people watching the same run
+        is not an edge case here -- it is a second browser tab.
+        """
+        waiter = asyncio.Event()
+        self._waiters.append(waiter)
+        try:
+            yield waiter
+        finally:
+            self._waiters.remove(waiter)
 
     def stage(self, name: str, payload: Any) -> None:
         self.stages[name] = payload
@@ -73,6 +101,7 @@ class Run:
             "events": len(self.events),
             "stages": sorted(self.stages),
             "leaf_index": self.leaf_index,
+            "model_calls": self.model_calls,
         }
 
     def as_dict(self) -> dict:

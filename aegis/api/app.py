@@ -19,18 +19,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from aegis import __version__
 from aegis.api import runner
 from aegis.api.config import ApiSettings
 from aegis.api.config import settings as default_settings
-from aegis.api.runs import Run
+from aegis.api.limits import (
+    CONTEXT_SIZE,
+    REQUEST_SIZE,
+    STREAMS,
+    ArrivalLimiter,
+    check_session_budget,
+    client_key,
+    refuse,
+)
+from aegis.api.runs import Run, RunEvent
 from aegis.api.scenarios import Scenario, catalogue, custom_scenario
 from aegis.api.session import Session, SessionStore
 from aegis.common.ids import prefixed_id
@@ -70,8 +80,36 @@ def create_app(
     app.state.log = _build_log(config) if log is None else log
     app.state.log_lock = asyncio.Lock()
     app.state.sessions = SessionStore(config)
+    app.state.arrivals = ArrivalLimiter(config)
+    app.state.attribution_slots = asyncio.Semaphore(config.max_concurrent_attributions)
+    app.middleware("http")(_limit_request_size)
     app.include_router(_router())
     return app
+
+
+async def _limit_request_size(request: Request, call_next):
+    """Refuse oversized bodies before anything reads them.
+
+    Checked at the middleware rather than per route because the field-level cap in
+    ``_resolve_scenario`` only sees a body FastAPI has already parsed -- by which point a
+    50MB JSON document has been received and deserialized. The two are not redundant: this
+    one bounds what the process ingests, that one bounds what the engine is asked to ablate.
+
+    ``Content-Length`` is advisory and a hostile client can lie or omit it. The starlette
+    stack still bounds an unlabelled body by what it will buffer, and the field-level cap
+    is what actually decides whether work happens -- so this is the cheap first gate, not
+    the only one.
+    """
+    config: ApiSettings = request.app.state.settings
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > config.max_request_bytes:
+        exc = refuse(
+            REQUEST_SIZE,
+            413,
+            f"body is {declared} bytes; the limit is {config.max_request_bytes}",
+        )
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    return await call_next(request)
 
 
 def _build_log(config: ApiSettings) -> TransparencyLog:
@@ -126,15 +164,15 @@ def _resolve_scenario(body: RunRequest, config: ApiSettings) -> Scenario:
                 status_code=400, detail="scenario=custom requires non-empty `injection`"
             )
         if len(injection) > config.max_injection_chars:
-            # Attribution costs O(segments) model calls, so unbounded submitted text is a
-            # cost amplifier -- threat T12, re-instantiated by opening this to the public.
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"injection is {len(injection)} characters; the limit is "
-                    f"{config.max_injection_chars}. Attribution costs one model call per "
-                    "segment, so context length is a cost amplifier (threat T12)."
-                ),
+            # Distinct from the body ceiling in the middleware: that one bounds what the
+            # process ingests, this one bounds what the engine is asked to ablate. A body
+            # well under 64KB can still be a context that costs hundreds of model calls.
+            raise refuse(
+                CONTEXT_SIZE,
+                413,
+                f"injection is {len(injection)} characters; the limit is "
+                f"{config.max_injection_chars}. Attribution costs one model call per "
+                "segment ablated, so context length is a cost amplifier.",
             )
         return custom_scenario(injection)
 
@@ -244,6 +282,10 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
 
     @router.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
+        config: ApiSettings = request.app.state.settings
+        request.app.state.arrivals.check(
+            f"session:{client_key(request, config)}", config.sessions_per_minute
+        )
         session = request.app.state.sessions.create(request.app.state.log)
         return {
             **session.as_dict(),
@@ -267,6 +309,14 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
     ) -> dict:
         session = _require_session(request, x_aegis_session)
         config: ApiSettings = request.app.state.settings
+
+        # Order matters: arrival rate, then budget, then the scenario. Parsing the
+        # scenario first would let a client over its rate limit still drive the
+        # classifier, which is cheap but not free, and is the wrong shape of answer.
+        request.app.state.arrivals.check(
+            f"run:{client_key(request, config)}", config.runs_per_minute
+        )
+        check_session_budget(session.model_calls_spent, config)
         scenario = _resolve_scenario(body, config)
 
         run = Run(
@@ -286,10 +336,19 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
         # stops advancing for no visible reason under load and never under test.
         run.task = asyncio.create_task(
             runner.execute(
-                run, session, request.app.state.log, request.app.state.log_lock, config
+                run,
+                session,
+                request.app.state.log,
+                request.app.state.log_lock,
+                config,
+                request.app.state.attribution_slots,
             )
         )
-        return {**run.summary(), "model": runner.MODEL_LABEL}
+        return {
+            **run.summary(),
+            "model": runner.MODEL_LABEL,
+            "events": f"/v1/runs/{run.run_id}/events",
+        }
 
     @router.get("/v1/runs")
     async def list_runs(
@@ -304,6 +363,49 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
     ) -> dict:
         session = _require_session(request, x_aegis_session)
         return _require_run(session, run_id).as_dict()
+
+    @router.get("/v1/runs/{run_id}/events")
+    async def stream_events(
+        run_id: str,
+        request: Request,
+        x_aegis_session: str | None = Header(default=None),
+        last_event_id: str | None = Header(default=None),
+        after: int = -1,
+    ) -> StreamingResponse:
+        """Server-sent events: every stage boundary, and every ablation as it completes.
+
+        Attribution issues tens of model calls and takes seconds. Streaming turns that
+        dead time into the most informative screen on the site -- the visitor watches
+        counterfactuals being tested rather than a spinner that tells them nothing.
+
+        Resumable: ``Last-Event-ID`` (sent automatically by ``EventSource`` on reconnect)
+        or ``?after=`` replays from a sequence number. The event log is retained on the
+        run, so a reconnect is a replay rather than a gap.
+        """
+        session = _require_session(request, x_aegis_session)
+        run = _require_run(session, run_id)
+        config: ApiSettings = request.app.state.settings
+
+        if session.open_streams >= config.max_streams_per_session:
+            raise refuse(
+                STREAMS,
+                429,
+                f"{config.max_streams_per_session} concurrent streams already open",
+            )
+
+        cursor = _resume_point(last_event_id, after)
+        return StreamingResponse(
+            _event_stream(run, session, cursor, config),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                # nginx and friends buffer proxied responses by default, which turns a
+                # live stream into one delivery at the end -- the exact failure this
+                # endpoint exists to avoid.
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @router.get("/v1/runs/{run_id}/{stage}")
     async def get_stage(
@@ -404,6 +506,63 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
         }
 
     return router
+
+
+def _resume_point(last_event_id: str | None, after: int) -> int:
+    """Where to start replaying. ``Last-Event-ID`` wins; both are advisory.
+
+    A malformed header is treated as "from the beginning" rather than as an error: it
+    arrives from a browser's automatic reconnect, where there is nobody to show a 400 to,
+    and replaying too much is recoverable while skipping events is not.
+    """
+    if last_event_id is not None:
+        try:
+            return int(last_event_id) + 1
+        except ValueError:
+            return 0
+    return after + 1 if after >= 0 else 0
+
+
+def _sse(event: RunEvent) -> str:
+    payload = json.dumps(event.data, separators=(",", ":"))
+    return f"id: {event.seq}\nevent: {event.type}\ndata: {payload}\n\n"
+
+
+async def _event_stream(
+    run: Run, session: Session, cursor: int, config: ApiSettings
+) -> AsyncIterator[str]:
+    """Drain, wait, drain again, until the run reaches a terminal state.
+
+    The ordering is what makes this correct: the waiter is registered *before* the first
+    drain, so an event emitted while we are yielding cannot be missed -- it sets a flag
+    that is already listening. Checking the run's status only after a full drain is what
+    guarantees a subscriber never sees "complete" while events remain unread.
+    """
+    session.open_streams += 1
+    try:
+        with run.subscribe() as updated:
+            while True:
+                while cursor < len(run.events):
+                    yield _sse(run.events[cursor])
+                    cursor += 1
+
+                if run.status != "running":
+                    return
+
+                updated.clear()
+                if cursor < len(run.events):
+                    # Emitted between the drain and the clear. Without this re-check that
+                    # event waits for the next one to arrive, and on the last event of a
+                    # run there is no next one.
+                    continue
+                try:
+                    await asyncio.wait_for(updated.wait(), timeout=config.stream_heartbeat_seconds)
+                except TimeoutError:
+                    # A comment frame. Keeps proxies and load balancers from reaping an
+                    # idle connection, and costs one line.
+                    yield ": keepalive\n\n"
+    finally:
+        session.open_streams -= 1
 
 
 def _durable(log: TransparencyLog) -> bool:

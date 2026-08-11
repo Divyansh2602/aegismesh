@@ -35,9 +35,51 @@ class ApiSettings(BaseSettings):
     across restarts when it is set.
     """
 
-    max_sessions: int = 500
+    max_sessions: int = 200
     max_runs_per_session: int = 25
     session_ttl_seconds: int = 7200
+
+    session_model_call_budget: int = 1500
+    """Total ablations one visitor may cause, across every run in their session.
+
+    This is the aggregate above control C-18, which caps a *single* attribution. Without
+    it, C-18 bounds each run and nothing bounds the number of runs.
+
+    It also bounds memory, which is the less obvious half. Each ablation appends one event
+    to the run that produced it, so retained events are
+    ``max_sessions x session_model_call_budget`` in the worst case -- 200 x 1500 at these
+    defaults, a few hundred megabytes of small objects. Raising either number without
+    doing that multiplication is how a service that survives an attacker falls over under
+    ordinary popularity.
+    """
+
+    runs_per_minute: int = 6
+    sessions_per_minute: int = 10
+    max_concurrent_attributions: int = 4
+    """Attributions allowed to run at once, process-wide.
+
+    The per-run and per-session ceilings bound *totals*; this bounds the instantaneous
+    load. Ten visitors starting a forty-call attribution in the same second is ordinary
+    traffic, not an attack, and it is what actually stalls the box.
+    """
+
+    max_streams_per_session: int = 4
+    max_request_bytes: int = 65_536
+    max_tracked_clients: int = 2048
+    stream_heartbeat_seconds: float = 15.0
+    """How long a stream waits before sending a comment frame.
+
+    Proxies and load balancers reap idle connections, and an attribution can spend longer
+    than that queued behind API-CONC without emitting anything.
+    """
+
+    trust_forwarded_for: bool = False
+    """Whether ``X-Forwarded-For`` may set the rate-limit key.
+
+    Off by default. A deployment behind a proxy it controls turns it on; anywhere else,
+    honouring it lets a caller choose their own bucket by sending a header, which is worse
+    than no limiter because it looks like one.
+    """
 
     max_injection_chars: int = 4000
     """Hard cap on visitor-authored document text.

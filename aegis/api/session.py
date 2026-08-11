@@ -51,6 +51,12 @@ class Session:
     runs: RunStore
     decisions: list[dict] = field(default_factory=list)
 
+    model_calls_spent: int = 0
+    """Ablations this visitor has caused, across every run. See ``limits.SESSION_BUDGET``."""
+
+    open_streams: int = 0
+    """Live SSE connections. Bounded so one visitor cannot hold every worker slot."""
+
     def as_dict(self) -> dict:
         return {
             "session_id": self.session_id,
@@ -60,6 +66,7 @@ class Session:
             "runs": len(self.runs),
             "witnessed_tree_size": self.witness.tree_size,
             "relying_party_decisions": len(self.decisions),
+            "model_calls_spent": self.model_calls_spent,
         }
 
 

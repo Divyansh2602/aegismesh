@@ -2,16 +2,16 @@
   "log_id": "did:web:log.aegismesh.example",
   "leaf_index": 0,
   "tree_size": 4,
-  "root_hash": "sha256:b9843bf38377585ca27b3e98d5a8be793c97189da6bb6d037e706ad6cc9422df",
+  "root_hash": "sha256:50c145c5433dde72f87ce0ab35cab40f49abfd6d43f7931f98cc8c3e298cf20e",
   "inclusion_proof": [
-    "sha256:f2a840e5b422446532eab9e246c6ca8649f9b3ae5b0fea557427bfcbfae4e3fe",
-    "sha256:e749bc920d9cd54236d9aa0bce62c692863e0dd4893a581db00b8e5467aae8f4"
+    "sha256:779f15f497d6855ef79500920ae528c21430f302b2858795319bf63de9332de3",
+    "sha256:2efb81be2c7d0a36a7df6ea4acb52e5ae1c7781f25838390523d4f45c500fa95"
   ],
   "signed_root": {
     "log_id": "did:web:log.aegismesh.example",
     "tree_size": 4,
-    "root_hash": "sha256:b9843bf38377585ca27b3e98d5a8be793c97189da6bb6d037e706ad6cc9422df",
-    "timestamp": "2026-08-11T19:34:28Z",
-    "signature": "z5KNXjdRnfWyZPSEZpYqBuCxgkunSLtoDuXBqDkdbumzP7wzXukMUxTajr4B3mw3BnyR2QuCsNmMxFQGNUpnngShf"
+    "root_hash": "sha256:50c145c5433dde72f87ce0ab35cab40f49abfd6d43f7931f98cc8c3e298cf20e",
+    "timestamp": "2026-08-11T20:18:23Z",
+    "signature": "zGWDGbkVuDsVQd1BywGCjDCGD9zKeba247ryW1K8KgeKda1g51fWnargLPVKRxyUw7enNn88DP1TcEH7Q1oToY3i"
   }
 }

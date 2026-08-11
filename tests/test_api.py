@@ -167,14 +167,26 @@ class TestVisitorAuthoredRuns:
         )
         assert run["labelled"] is False
 
-    async def test_an_oversized_document_is_refused_by_the_named_control(self, client):
+    async def test_an_oversized_context_is_refused_by_the_named_control(self, client):
+        """Under the body ceiling, over the context ceiling: two different limits."""
+        response = await client.post(
+            "/v1/runs",
+            json={"scenario": "custom", "injection": "x" * 8_000},
+            headers={SESSION_HEADER: await open_session(client)},
+        )
+        assert response.status_code == 413
+        detail = response.json()["detail"]
+        assert detail["control"] == "API-CONTEXT"
+        assert "T12" in detail["threat"]
+
+    async def test_an_oversized_body_is_refused_before_it_is_parsed(self, client):
         response = await client.post(
             "/v1/runs",
             json={"scenario": "custom", "injection": "x" * 99_999},
             headers={SESSION_HEADER: await open_session(client)},
         )
         assert response.status_code == 413
-        assert "T12" in response.json()["detail"]
+        assert response.json()["detail"]["control"] == "API-SIZE"
 
     async def test_an_empty_custom_document_is_refused(self, client):
         response = await client.post(

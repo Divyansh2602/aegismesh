@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 from aegis.api.config import ApiSettings
+from aegis.api.limits import CONCURRENCY
 from aegis.api.runs import Run
 from aegis.api.scenarios import (
     OPERATION,
@@ -22,7 +23,7 @@ from aegis.api.scenarios import (
 )
 from aegis.api.session import Session
 from aegis.attribution.client import InProcessMockClient
-from aegis.attribution.engine import AttributionEngine
+from aegis.attribution.engine import AblationEvent, AttributionEngine
 from aegis.attribution.models import ActionSignature
 from aegis.log.log import TransparencyLog
 from aegis.provenance.classifier import ContextClassifier
@@ -73,20 +74,25 @@ async def execute(
     log: TransparencyLog,
     log_lock: asyncio.Lock,
     settings: ApiSettings,
+    attribution_slots: asyncio.Semaphore,
 ) -> None:
     """Run one scenario end to end, recording each stage on ``run``.
 
     Failures are recorded on the run and re-raised nowhere: this is a background task,
     and an exception escaping it would be swallowed by the event loop and leave the run
     stuck in "running" forever with no explanation. The visitor gets the failure.
+
+    ``run.status`` is set last, and the final ``emit`` is what wakes every open stream --
+    so a subscriber that sees a terminal status has already been handed every event.
     """
     try:
-        await _execute(run, session, log, log_lock, settings)
+        await _execute(run, session, log, log_lock, settings, attribution_slots)
         run.status = "complete"
     except Exception as exc:  # noqa: BLE001 - recorded, surfaced, and ends the run
         run.status = "failed"
         run.error = f"{type(exc).__name__}: {exc}"
-        run.emit("failed", {"error": run.error})
+    finally:
+        run.emit("end", {"status": run.status, "error": run.error})
 
 
 async def _execute(
@@ -95,6 +101,7 @@ async def _execute(
     log: TransparencyLog,
     log_lock: asyncio.Lock,
     settings: ApiSettings,
+    attribution_slots: asyncio.Semaphore,
 ) -> None:
     body = run.scenario.body
 
@@ -112,7 +119,36 @@ async def _execute(
     client = InProcessMockClient()
     trace.upstream_response = await client.complete(body)
 
-    engine = AttributionEngine(client=client, max_model_calls=settings.max_model_calls)
+    def on_ablation(event: AblationEvent) -> None:
+        """Report one counterfactual as it completes.
+
+        The visitor watching this is the point of Phase 5b: attribution takes tens of
+        model calls, and a progress bar would tell them nothing about what the system is
+        actually doing. ``comparable`` is streamed rather than left to be inferred from a
+        zero influence, because those are different findings (design decision 6).
+        """
+        run.model_calls = event.sequence
+        session.model_calls_spent += 1
+        run.emit(
+            "ablation",
+            {
+                "sequence": event.sequence,
+                "granularity": event.granularity,
+                "segment_id": event.segment_id,
+                "class": event.cls.value,
+                "excerpt_hash": event.excerpt_hash,
+                "influence": round(event.influence, 4),
+                "necessity": round(event.necessity, 4),
+                "per_field": {f: round(v, 4) for f, v in event.per_field.items()},
+                "comparable": event.comparable,
+            },
+        )
+
+    engine = AttributionEngine(
+        client=client,
+        max_model_calls=settings.max_model_calls,
+        observer=on_ablation,
+    )
     proposed = []
     for signature in ActionSignature.all_from_response(trace.upstream_response):
         gated = engine.gate.evaluate(signature)
@@ -131,7 +167,12 @@ async def _execute(
     run.emit("proposed", {"calls": proposed})
 
     # ----------------------------------------------------------------- attribute
-    attribution = await engine.attribute(body, trace)
+    if attribution_slots.locked():
+        # Say so rather than stalling silently. Waiting on API-CONC is the visitor meeting
+        # the cost of attribution, which is the thing this phase is about measuring.
+        run.emit("queued", {"control": CONCURRENCY.id, "reason": CONCURRENCY.name})
+    async with attribution_slots:
+        attribution = await engine.attribute(body, trace)
     run.emit(
         "gate",
         {"consequential": attribution.consequential, "reason": attribution.gate_reason},

@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from pydantic import BaseModel
+
 from aegis.attribution import ablation
 from aegis.attribution.gate import ConsequenceGate
 from aegis.attribution.models import (
@@ -44,6 +46,51 @@ class ModelClient(Protocol):
     async def complete(self, body: dict) -> dict: ...
 
 
+class AblationEvent(BaseModel):
+    """One counterfactual, reported as it completes.
+
+    Exists so a caller can watch attribution happen instead of waiting on a total. The
+    engine issues tens of model calls per action and returns nothing until all of them
+    are done, which is dead time for anything with a user attached to it.
+
+    **Carries hashes, never text.** The same rule as ``Contributor``: an excerpt that
+    leaves the engine leaves as a digest, so a progress feed can never become the channel
+    that discloses the document the agent read.
+    """
+
+    sequence: int
+    """Model calls spent when this measurement finished. Monotonic within one run."""
+
+    granularity: str
+    segment_id: str
+    cls: ProvenanceClass
+    excerpt_hash: str
+
+    influence: float
+    necessity: float
+    per_field: dict[str, float]
+    comparable: bool
+    """False when every run cancelled the action -- an absence of evidence, not a zero.
+
+    Streamed rather than derived downstream because the distinction is design decision 6,
+    and a consumer that had to infer it from a zero would infer it wrong.
+    """
+
+
+class AblationObserver(Protocol):
+    """Called once per completed measurement. Must not block and must not raise.
+
+    Synchronous on purpose: it is invoked from inside the measurement loop, and making it
+    awaitable would let a slow consumer stall the attribution it is watching.
+
+    Exceptions are **not** caught. A caller whose observer raises has a bug, and an
+    attribution that carried on while silently unobserved would report a total nobody
+    could reconcile with what they saw.
+    """
+
+    def __call__(self, event: AblationEvent) -> None: ...
+
+
 class AttributionEngine:
     def __init__(
         self,
@@ -56,7 +103,11 @@ class AttributionEngine:
         span_ablation: bool = False,
         class_ablation: bool = False,
         max_model_calls: int = 400,
+        observer: AblationObserver | None = None,
     ) -> None:
+        self.observer = observer
+        """Optional per-measurement callback. See :class:`AblationObserver`."""
+
         self.client = client
         self.gate = gate or ConsequenceGate()
         self.resamples = max(1, resamples)
@@ -199,6 +250,14 @@ class AttributionEngine:
                 continue
 
             measured = await self._measure(ablated, baseline, fields, budget)
+            self._observe(
+                "segment",
+                segment.segment_id,
+                segment.cls,
+                segment.source.content_hash,
+                measured,
+                budget,
+            )
             contributors.append(
                 Contributor(
                     segment_id=segment.segment_id,
@@ -253,6 +312,14 @@ class AttributionEngine:
                     body, segment.locator.message_index, start, end, mode=self.mode
                 )
                 measured = await self._measure(ablated, baseline, fields, budget)
+                self._observe(
+                    "sentence",
+                    segment.segment_id,
+                    segment.cls,
+                    hash_text(sentence),
+                    measured,
+                    budget,
+                )
                 if measured.influence <= NOISE_FLOOR:
                     continue
                 results.append(
@@ -314,6 +381,14 @@ class AttributionEngine:
                         body, segment.locator.message_index, start, end, mode=self.mode
                     )
                     measured = await self._measure(ablated, baseline, fields, budget)
+                    self._observe(
+                        "span",
+                        segment.segment_id,
+                        segment.cls,
+                        hash_text(text),
+                        measured,
+                        budget,
+                    )
                     contributors.append(
                         Contributor(
                             segment_id=segment.segment_id,
@@ -371,12 +446,16 @@ class AttributionEngine:
                 continue
 
             measured = await self._measure(ablated, baseline, fields, budget)
+            class_excerpt = hash_text("|".join(s.source.content_hash for s in segments))
+            self._observe(
+                "class", f"class:{cls.value}", cls, class_excerpt, measured, budget
+            )
             contributors.append(
                 Contributor(
                     segment_id=f"class:{cls.value}",
                     **{"class": cls},
                     origin=None,
-                    excerpt_hash=hash_text("|".join(s.source.content_hash for s in segments)),
+                    excerpt_hash=class_excerpt,
                     influence=measured.influence,
                     necessity=measured.necessity,
                     per_field=measured.per_field,
@@ -385,6 +464,38 @@ class AttributionEngine:
                 )
             )
         return contributors
+
+    def _observe(
+        self,
+        granularity: str,
+        segment_id: str,
+        cls: ProvenanceClass,
+        excerpt_hash: str,
+        measured: _Measurement,
+        budget: _Budget,
+    ) -> None:
+        """Report one completed measurement, if anyone is watching.
+
+        Called at every ``_measure`` site, including the sentence-level ones whose results
+        are then discarded for scoring below the noise floor. A consumer counting events
+        against ``model_calls`` would otherwise come up short and have no way to know why:
+        a counterfactual that was tested and found uninteresting still happened.
+        """
+        if self.observer is None:
+            return
+        self.observer(
+            AblationEvent(
+                sequence=budget.spent,
+                granularity=granularity,
+                segment_id=segment_id,
+                cls=cls,
+                excerpt_hash=excerpt_hash,
+                influence=measured.influence,
+                necessity=measured.necessity,
+                per_field=dict(measured.per_field),
+                comparable=measured.comparable,
+            )
+        )
 
     def _granularity(self) -> list[str]:
         levels = ["segment"]

@@ -5,8 +5,8 @@
 > An agent action without a warrant is an unsigned transaction.
 > AegisMesh makes agents prove *why*, not just *who*.
 
-![phase](https://img.shields.io/badge/phase-5a%20of%208%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-350%20passing-2ea44f)
+![phase](https://img.shields.io/badge/phase-5%20of%208%20complete-2ea44f)
+![tests](https://img.shields.io/badge/tests-372%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -122,12 +122,12 @@ signal away.
 | 2 — Causal attribution | ✅ | Leave-one-out ablation, per-argument influence, necessity kept separate |
 | 3 — Warrants, log, enforcement | ✅ | **The system refuses.** Poisoned invoice runs end to end, the payment API rejects it, and an inclusion proof survives verification by a third party holding two public keys |
 | 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
-| 5 — Public API | 🟨 | **5a landed:** sessions, runs, bring-your-own-injection, a shared transparency log that survives a restart, and auditor artifacts that verify offline. 5b adds streaming and the abuse controls |
+| 5 — Public API | ✅ | Sessions, runs, bring-your-own-injection, a shared transparency log that survives a restart, auditor artifacts that verify offline — and an SSE stream that reports **every ablation as it completes**, with abuse controls that name the control refusing you |
 | 6 — Console | ⬜ | Next.js front end over the API |
 | 7 — Ship it | ⬜ | Containers, CI, hosting, the public URL |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-350 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+372 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -167,11 +167,28 @@ invoice reader that control C-19 says stays untrusted. Then
 files, and `tools/verify_warrant.py` checks them on your machine with no network and no
 shared secret.
 
+`GET /v1/runs/{id}/events` streams the run as it happens — every stage boundary and **every
+counterfactual as it completes**, so you watch the ablations being tested instead of a
+spinner. It is resumable (`Last-Event-ID` or `?after=`), and each ablation event carries the
+`comparable` flag, because "nothing was pivotal" and "nothing could be measured" are
+different findings and no consumer should have to guess which one a zero means.
+
 The transparency log is shared by every caller on purpose: a tree you grew alone proves
 nothing about append-only. `GET /v1/log/consistency?first=N` bridges a head you were given
 earlier to the one you are given now, across restarts. Visitor-authored runs are marked
 **unlabelled** and never enter a scored metric — the repo has ground truth for the cases it
 constructed, and none for a string a stranger pasted.
+
+Opening this to strangers re-instantiates **threat T12** from our own threat model: denial of
+service via attribution cost. So there are limits — and every refusal names the control that
+refused, because a limit that demonstrates the threat model is worth more than one that hides
+it:
+
+```json
+{"detail": {"control": "C-18/session", "control_name": "per-session attribution budget",
+            "detail": "this session has spent 8 model calls of 5. ...",
+            "threat": "T12 — denial of service via attribution cost. ..."}}
+```
 
 The Phase 3 demo runs the attack, then attacks the defence: the operator edits the warrant
 (signature breaks), signs a permit anyway (the payment API denies on its own policy), forks
