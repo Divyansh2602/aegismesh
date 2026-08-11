@@ -1,6 +1,6 @@
 # AegisMesh — Session Handoff
 
-**Written:** 2026-08-06 · **Phase 4 complete**
+**Written:** 2026-08-06 · **Updated:** 2026-08-12 · **Phase 5a complete**
 **Repo:** `C:\Users\Divyansh Gupta\Documents\everything`
 
 ---
@@ -29,9 +29,16 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **317 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **350 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
+
+The API is exercised by `tests/test_api.py` through an in-process ASGI transport, so it is
+covered by the command above. To drive it over a real socket:
+
+```bash
+AEGIS_API_LOG_DATABASE=log.sqlite3 uvicorn aegis.api.app:app --port 8000
+```
 
 The AgentDojo sweep is separate because it needs the optional extra and takes a few minutes:
 
@@ -84,7 +91,8 @@ nothing.
 | 2 — Causal attribution | **Done** | `aegis/attribution/`, `aegis/evaluation/` |
 | 3 — Warrants, log, enforcement | **Done** | `aegis/warrant/`, `aegis/log/`, `aegis/policy/`, `aegis/pep/`, `tools/verify_warrant.py` |
 | 4 — Adversarial evaluation | **Done** | `aegis/evaluation/{agentdojo,surrogate,phase4,theta}.py`, `aegis/audit/`, `aegis/provenance/monotonicity.py` |
-| 5 — Public API | **Next** | the HTTP surface that makes the whole pipeline drivable, plus the abuse controls opening it requires |
+| 5a — Public API, endpoints | **Done** | `aegis/api/`, `aegis/log/storage.py`, `tests/test_api.py`, `tests/test_log_storage.py` |
+| 5b — Public API, streaming & abuse controls | **Next** | SSE over the events every run already records; per-IP limits, session budgets, C-18 surfaced in the UI |
 | 6 — Console | Pending | Next.js + TypeScript, responsive, interactive |
 | 7 — Ship it | Pending | containers, CI, hosting, the public launch |
 | 8 — Article 12, paper, patent, standards | Pending | — |
@@ -150,6 +158,12 @@ aegis/
                 engine.py     leave-one-out ablation, influence/necessity/argument_status
                 client.py     InProcessMockClient / HttpModelClient
   audit/        replay.py     re-runs a warrant's attribution against a disclosed trace
+  api/          app.py        sessions, runs, shared log, auditor artifact downloads
+                runner.py     the pipeline driven once, every stage recorded as an event
+                scenarios.py  presets = the labelled case set; visitor runs stay unlabelled
+                session.py    per-visitor issuer key, policy, PEP, witness; shared log
+                runs.py       Run, RunEvent, bounded per-session RunStore
+                config.py     bounds; the abuse controls proper are 5b
   evaluation/   cases.py      labelled ground-truth cases
                 harness.py    precision/recall/localization/cost
                 agentdojo.py  adapter for AgentDojo's security suites (optional extra)
@@ -161,6 +175,7 @@ aegis/
                 issuer.py     eddsa-jcs-2022 signing, replay_ref, verify_signature
   log/          merkle.py     RFC 6962 by hand: inclusion + consistency, both directions
                 log.py        append-only log, signed tree heads, receipts
+                storage.py    durable backing; SQLite, insert-only, schema-enforced
                 witness.py    independent observer; raises ForkDetected
   policy/       engine.py     declarative rules as data, so policy_hash means something
                 library.py    the treasury policy (SPEC section 6) and issuer policies
@@ -421,52 +436,121 @@ the next session does not follow the stale advice:
    available. `TransparencyLog` needs durable storage before launch. The replay cache and
    trace store can stay in memory.
 
+   **Done in Phase 5a** rather than deferred to Phase 7, because the log-access layer would
+   otherwise have been written twice — once against an in-memory tree and again against a
+   database — and because it is the one property a returning visitor can test personally.
+
 ---
 
-## Phase 5 — the public API
+## Phase 5a — the public API, as built
 
-**Goal:** make every capability drivable over HTTP by something that is not Python, and add
-the controls that opening it to strangers requires.
+**Definition of done, met:** the Phase 3 pipeline is drivable end to end over HTTP by
+something that is not Python, a visitor can put their own document in front of the agent,
+and the three files the API hands out verify offline under `tools/verify_warrant.py`.
 
-**Definition of done:** the entire Phase 3 and Phase 4 demo output is reproducible through
-HTTP calls alone, and a hostile visitor cannot take the service down.
+Verified over a real socket, not only through the test client: `uvicorn` on a SQLite-backed
+log, a custom injection posted by `curl`, the files downloaded and checked by the standalone
+verifier — **6/6**. Then the process was killed and restarted against the same database: same
+tree size, byte-identical root, and a consistency proof bridging the pre-restart head to the
+post-restart one verified.
 
-### Build order
+### The surface
 
-1. **`aegis/api/`** — a FastAPI app distinct from `aegis/proxy/`. The proxy intercepts an
-   agent; this serves a UI. Conflating them would put a public attack surface on the
-   interception path.
-2. **Endpoints**, roughly: submit a scenario (preset or user-authored) → classify → attribute
-   → issue → log → enforce, each step inspectable; fetch warrant, receipt, inclusion and
-   consistency proofs; run one named attack scene; run the replay verifier; download the
-   three auditor artifacts as files.
-3. **Streaming.** Attribution issues 35–40 model calls per action and takes seconds.
-   Server-sent events emitting each ablation as it completes turn dead waiting into the most
-   interesting screen on the site — the visitor *watches* counterfactuals being tested.
-4. **Abuse controls, and name what they are.** Per-IP rate limits, request size caps, a
-   session-scoped budget, and the engine's existing `max_model_calls`.
+```
+POST /v1/sessions                             your own issuer key, policy, PEP, witness
+POST /v1/runs                                 preset name, or custom + your own document
+GET  /v1/runs/{id}                            status and the ordered event log
+GET  /v1/runs/{id}/{context|proposal|attribution|warrant|receipt|decision}
+GET  /v1/runs/{id}/artifacts                  the three auditor files, pinned as one snapshot
+GET  /v1/runs/{id}/artifacts/{name}.json      one file, as a download
+GET  /v1/log · /v1/log/consistency?first=N · /v1/log/entries/{i}      no session needed
+GET  /v1/witness                              what your witness has accepted
+GET  /v1/scenarios                            the catalogue, and what produced its numbers
+```
 
-   **Opening this to the public re-instantiates threat T12 from our own threat model:**
-   denial of service via attribution cost. Ablation is O(segments) model calls, so a visitor
-   pasting a large context is a cost amplifier. Control C-18 already exists in the engine —
-   the API must actually use it, and the site should say that the limit visitors hit is the
-   same control the design specifies. That is a demonstration of the threat model, not a
-   workaround for it.
-5. **Session isolation.** Each visitor gets their own issuer keys, policy and PEP state, but
-   **shares the transparency log** — see below.
+### Decisions worth defending
 
-### Decisions to make deliberately
+- **The preset catalogue *is* `evaluation/cases.build_cases()`.** Authoring a second set of
+  scenarios for presentation would create a second definition of the demo, free to drift
+  from the one the harness scores and the tests protect. The thing on the website is the
+  thing the numbers were measured on.
+- **Visitor-authored runs are marked `labelled: false`, permanently.** We know what our own
+  cases contain by construction; we have no ground truth for a string a stranger pasted.
+  Calling it "poisoned" because it looks like an injection would put a fabricated label
+  beside measured ones, which is the failure mode this project is an argument against.
+  Nothing unlabelled may ever enter a scored metric.
+- **The injection slot is the conduit tool's document, not an arbitrary message.** That is
+  where control C-19 says trust does not follow tool integrity — a pinned, well-behaved
+  reader relaying a supplier's PDF. Letting a visitor write it is letting them attack the
+  design at the seam it claims to hold, rather than at a seam we invented for the demo.
+- **Sessions travel in `X-Aegis-Session`, never a cookie.** Nothing is attached to a request
+  automatically, so the service has no CSRF surface rather than a defended one.
+- **Per-session issuer keys are generated, not derived from the session id.** A key
+  reconstructible from a header is a private key anyone holding the header has — harmless
+  for demo warrants, and exactly the habit this project exists to argue against.
+- **The auditor bundle is pinned on first request.** For an offline verifier to reach 6/6,
+  the receipt's tree size must equal the size the witness accepted. The shared log grows
+  while a visitor reads the page, so a receipt fetched at one moment and anchors fetched at
+  another describe different trees and fail a check that is doing its job. The bundle is
+  built once under the log lock and cached; every later request returns identical bytes.
+- **Stages are absent when they did not run.** A missing stage is a 409 that says so, never
+  an empty object shaped like a real one. Same rule the console inherits: never render a mock.
+- **The 4 000-character cap on submitted text is in 5a, not 5b.** It is not really a control
+  so much as the absence of an obvious hole — attribution is O(segments) model calls, so
+  unbounded submitted text is threat T12 with no attacker skill required. The 413 names T12
+  in its body. The controls proper — per-IP limits, session budgets, C-18 surfaced in the UI
+  — are still 5b.
 
-- **Shared log, per-session everything else.** A shared append-only log lets a visitor see a
-  real tree grown from other people's actions, and take a consistency proof between two
-  visits. It is also shared mutable state reachable by strangers, so entries must be
-  size-capped and no submitted content may ever be rendered back to another visitor
-  unescaped.
+### Durable transparency log
+
+`aegis/log/storage.py`. `TransparencyLog` takes an optional `LogStorage`; in-memory is still
+the default, so every demo and test is unchanged. SQLite keeps the RFC 6962 implementation
+readable, which was the point of hand-writing it, and `idx` is the primary key with plain
+`INSERT` only — a second writer at the same index gets an `IntegrityError` from the database,
+so append-only is enforced by the schema rather than by convention. The durable write happens
+*before* the in-memory tree advances, because a log that counts an entry it failed to persist
+comes back shorter than the roots it already signed.
+
+**Stated honestly, and tested as such:** persistence detects corruption, not tampering.
+Whoever can write the database can rewrite an entry and its stored leaf together, and no
+check inside the storage layer can tell. `test_a_rewritten_row_with_a_matching_leaf_loads_cleanly`
+documents exactly that, and the reason it does not matter: the root changes, and the witness
+in another trust domain is the party that notices.
+
+### One bug worth remembering
+
+`TransparencyLog` defines `__len__`, so an **empty log is falsy**. `app.state.log = log or
+_build_log(config)` therefore threw away the injected durable log and served an in-memory one
+— but only when the log was empty, which is to say only on a cold start, which is to say only
+on the exact path durability exists for. It passed every test that appended first.
+`test_an_empty_injected_log_is_not_replaced` is the regression. The general form: `or`-defaulting
+is safe for `None` and wrong for anything with a length.
+
+## Phase 5b — streaming and the abuse controls
+
+**Definition of done:** a visitor watches ablations arrive one by one, and a hostile visitor
+cannot take the service down.
+
+1. **SSE at `GET /v1/runs/{id}/events`.** Every run already records an ordered event log with
+   sequence numbers; 5b is the transport plus an `asyncio.Event` to wake waiters. The
+   per-ablation events need a callback hook on `AttributionEngine`, which does not have one
+   yet — that is the only library change 5b requires.
+2. **Per-IP rate limits and a session-scoped model-call budget**, on top of the engine's
+   existing `max_model_calls` (C-18). Use the existing knob rather than inventing a limiter,
+   and say in the response *which* control refused, because a limit that demonstrates the
+   threat model is worth more than one that hides it.
+3. **Request size caps at the app layer**, not only on the injection field.
+
+### Still true, and still binding
+
 - **Surrogate only, labelled.** No real-model path in the public API: it needs a key, costs
-  money per visitor, and would make the site abusable as a free LLM proxy. The page must say
-  which model produced the numbers, in the same words `demo/phase4_eval.py` uses.
+  money per visitor, and would make the site abusable as a free LLM proxy. Every response
+  that carries numbers already carries `runner.MODEL_LABEL`; keep it that way.
 - **Read-only by construction.** Nothing a visitor submits may change policy, keys, or
   another session's state.
+- **No submitted text in the shared log.** Warrants carry excerpt hashes, not excerpts, so
+  this holds by construction — and `test_the_shared_log_never_carries_submitted_text` asserts
+  it against a canary rather than trusting the design note.
 
 ---
 
@@ -511,9 +595,13 @@ on Railway or Fly.
 1. Dockerfile for the API; Vercel project for the console.
 2. **CI**: `ruff` + `pytest` on every push. The repo has none, and a public project whose
    selling point is verifiability needs a green check.
-3. Durable storage for the transparency log. SQLite is sufficient and keeps the RFC 6962
-   implementation readable, which was the point of hand-writing it.
+3. ~~Durable storage for the transparency log.~~ **Landed in Phase 5a** — `aegis/log/storage.py`.
+   What remains here is deployment-side: set `AEGIS_API_LOG_DATABASE` to a path on a volume
+   that survives a container restart, and set `AEGIS_API_LOG_SEED` from a secrets manager
+   rather than the published default — a log whose key changes is a log whose entire signed
+   history stops verifying.
 4. Health checks, structured logs, an error page that does not leak stack traces.
+   `GET /health` exists and reports tree size, durability and the model label.
 5. Custom domain, and the demo URL at the top of the README.
 
 ---

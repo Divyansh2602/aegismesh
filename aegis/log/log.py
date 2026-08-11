@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from aegis.common.hashing import HASH_PREFIX, canonical_json
 from aegis.log import merkle
+from aegis.log.storage import InMemoryLogStorage, LogStorage
 from aegis.warrant.keys import SigningKey, VerifyingKey, multibase_decode
 from aegis.warrant.models import iso, utc_now
 
@@ -93,11 +94,24 @@ class Receipt(BaseModel):
 class TransparencyLog:
     """An append-only Merkle log over canonicalized warrant documents."""
 
-    def __init__(self, log_id: str, signing_key: SigningKey) -> None:
+    def __init__(
+        self,
+        log_id: str,
+        signing_key: SigningKey,
+        storage: LogStorage | None = None,
+    ) -> None:
+        """``storage`` defaults to in-memory, which is what every demo and test wants.
+
+        The leaves are held in memory either way and recomputed from the stored entries
+        on load. Proofs touch the whole leaf array, so serving them from the database
+        would turn an O(log n) proof into O(n) queries for a tree small enough to fit in
+        a few megabytes -- storage is for surviving a restart, not for the read path.
+        """
         self.log_id = log_id
         self.signing_key = signing_key
-        self._leaves: list[bytes] = []
-        self._entries: list[bytes] = []
+        self.storage: LogStorage = InMemoryLogStorage() if storage is None else storage
+        self._entries: list[bytes] = self.storage.load()
+        self._leaves: list[bytes] = [merkle.leaf_hash(entry) for entry in self._entries]
 
     def __len__(self) -> int:
         return len(self._leaves)
@@ -117,9 +131,16 @@ class TransparencyLog:
         logical warrant produce the same leaf, so a duplicate is visibly a duplicate.
         """
         entry = canonical_json(document)
+        leaf = merkle.leaf_hash(entry)
+        index = len(self._leaves)
+
+        # Durable first. If the write fails, the in-memory tree must not advance past what
+        # was persisted, or a restart would silently produce a *shorter* log than the one
+        # whose roots were already signed and handed out.
+        self.storage.append(index, entry, leaf)
+
         self._entries.append(entry)
-        self._leaves.append(merkle.leaf_hash(entry))
-        index = len(self._leaves) - 1
+        self._leaves.append(leaf)
         return self.receipt_for(index)
 
     def receipt_for(self, index: int) -> Receipt:

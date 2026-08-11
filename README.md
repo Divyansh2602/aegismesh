@@ -5,8 +5,8 @@
 > An agent action without a warrant is an unsigned transaction.
 > AegisMesh makes agents prove *why*, not just *who*.
 
-![phase](https://img.shields.io/badge/phase-4%20of%206%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-317%20passing-2ea44f)
+![phase](https://img.shields.io/badge/phase-5a%20of%208%20complete-2ea44f)
+![tests](https://img.shields.io/badge/tests-350%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -42,6 +42,7 @@ aegis/
   pep/          the eleven-step admission algorithm
   audit/        re-runs a warrant's attribution to check the issuer told the truth
   evaluation/   AgentDojo adapter, deterministic surrogate model, scoring, the theta sweep
+  api/          the public HTTP surface: sessions, runs, the shared log, auditor downloads
 tools/
   verify_warrant.py   standalone auditor: 2 public keys, 1 root hash, nothing else
 ```
@@ -110,6 +111,7 @@ signal away.
 | `aegis-pep` | Policy enforcement point. Verifies warrants before an action is honored. |
 | `aegis-audit` | Re-runs a warrant's attribution against a disclosed trace. Turns a lying issuer from non-repudiable into falsifiable. |
 | `aegis-forge` | Adversarial harness: the AgentDojo adapter, the θ sweep, and the attacks on our own gate. |
+| `aegis-api` | Public HTTP surface. Drives the whole pipeline from a preset or a document you write yourself, and hands out the three files an outside auditor needs. |
 
 ## Status
 
@@ -120,10 +122,12 @@ signal away.
 | 2 — Causal attribution | ✅ | Leave-one-out ablation, per-argument influence, necessity kept separate |
 | 3 — Warrants, log, enforcement | ✅ | **The system refuses.** Poisoned invoice runs end to end, the payment API rejects it, and an inclusion proof survives verification by a third party holding two public keys |
 | 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
-| 5 — Console & compliance export | ⬜ | Next |
-| 6 — Paper, patent, standards | ⬜ | — |
+| 5 — Public API | 🟨 | **5a landed:** sessions, runs, bring-your-own-injection, a shared transparency log that survives a restart, and auditor artifacts that verify offline. 5b adds streaming and the abuse controls |
+| 6 — Console | ⬜ | Next.js front end over the API |
+| 7 — Ship it | ⬜ | Containers, CI, hosting, the public URL |
+| 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-317 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+350 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -148,6 +152,26 @@ without it, its tests skip, and the measured results are committed.
 ```bash
 pip install -e ".[agentdojo]" && python demo/phase4_eval.py    # a few minutes
 ```
+
+### Driving it over HTTP
+
+```bash
+AEGIS_API_LOG_DATABASE=log.sqlite3 uvicorn aegis.api.app:app --port 8000
+```
+
+`POST /v1/sessions` gets you your own issuer key, policy and enforcement point. `POST
+/v1/runs` takes a preset from the labelled case set — or `{"scenario": "custom",
+"injection": "..."}` to put your own document in front of the agent, relayed by the pinned
+invoice reader that control C-19 says stays untrusted. Then
+`GET /v1/runs/{id}/artifacts/{warrant,receipt,trust_anchors}.json` gives you the three
+files, and `tools/verify_warrant.py` checks them on your machine with no network and no
+shared secret.
+
+The transparency log is shared by every caller on purpose: a tree you grew alone proves
+nothing about append-only. `GET /v1/log/consistency?first=N` bridges a head you were given
+earlier to the one you are given now, across restarts. Visitor-authored runs are marked
+**unlabelled** and never enter a scored metric — the repo has ground truth for the cases it
+constructed, and none for a string a stranger pasted.
 
 The Phase 3 demo runs the attack, then attacks the defence: the operator edits the warrant
 (signature breaks), signs a permit anyway (the payment API denies on its own policy), forks
