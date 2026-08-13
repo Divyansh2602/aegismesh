@@ -169,6 +169,23 @@ technical standard exists (prEN 18229-1 and ISO/IEC DIS 24970 remain drafts).
 | Records supporting post-market monitoring | Transparency log is queryable and exportable per mandate, principal, or action class |
 | Integrity of records for supervisory audit | Merkle inclusion + consistency proofs; tamper-evidence survives a dishonest operator |
 
+**Exported, with its gaps.** `aegis/compliance/article12.py` and
+`python tools/article12_export.py warrant.json receipt.json` produce this mapping per
+warrant. On the Phase 3 warrant it reports **4 covered, 2 partial, 1 not covered**, and the
+partial and uncovered entries state what is missing rather than rounding themselves up:
+detecting a substantial modification needs records compared *over time*, which is an
+operator process this system does not perform; "reference database" is recorded as a
+provenance class and a tool identity, not a dataset version; and **retention is not covered
+at all**, because it is a deployment property with no policy, period or deletion path here.
+
+Two properties are worth stating because they are what make the export usable as evidence
+rather than as marketing. Supplying no receipt **downgrades** the integrity requirement from
+covered to partial instead of asserting it — a signature proves authorship, not that a
+record was never withheld. And `invariant` is never reported as unresolved: only `unknown`
+is the absence of evidence, and an earlier version of the export merged the two, describing
+a redundantly-determined value as having no measured cause in a document a regulator would
+read. That is design decision 6 reappearing where it would have done the most damage.
+
 **Why a Merkle transparency log rather than a blockchain** — the design question a senior
 reviewer will ask:
 

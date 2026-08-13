@@ -127,7 +127,7 @@ signal away.
 | 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-692 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+702 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -295,6 +295,31 @@ calls.
 
 Eight attacks no longer working is a much smaller claim than the classifier being safe. The
 suite is a floor, not a ceiling.
+
+## EU AI Act Article 12
+
+```bash
+python tools/article12_export.py results/phase3_warrant.json results/phase3_receipt.json
+```
+
+Maps a warrant onto the Article 12 obligations — enforceable since **2 August 2026**, with
+no finalised technical standard, which is why this maps to the obligations rather than to a
+schema nobody has ratified. On the Phase 3 warrant: **4 covered, 2 partial, 1 not covered.**
+
+The gaps are the point. Compliance exports are optimistic by construction — nothing in the
+code path punishes marking everything green — so every incomplete requirement has to say
+what is missing, and the tests fail if one doesn't. **Retention is reported as not covered
+at all**, because it is a deployment property with no policy, period or deletion path in
+this system, and omitting it would let a reader assume it was handled.
+
+Two behaviours make it evidence rather than a brochure. Supplying no receipt **downgrades**
+integrity from covered to partial rather than asserting it: a signature proves authorship,
+not that a record was never withheld. And `invariant` is never reported as unresolved —
+only `unknown` is the absence of evidence. An earlier version merged them and described a
+redundantly-determined value as having no measured cause, in a document a regulator would
+read.
+
+It is not legal advice and not a certification, and it says so in its own output.
 
 ## Attacking our own design
 

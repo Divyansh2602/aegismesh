@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **692 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
+Expected: **702 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -982,8 +982,27 @@ worse than having none.
 
 Unchanged in substance, moved back by the three phases above.
 
-- **EU AI Act Article 12 export** — map warrant fields onto the record-keeping obligations,
-  and state which obligations it does *not* discharge.
+- ~~**EU AI Act Article 12 export**~~ **Done 2026-08-13.** `aegis/compliance/article12.py`,
+  `tools/article12_export.py`, `tests/test_article12.py`. On the Phase 3 warrant: **4
+  covered, 2 partial, 1 not covered.**
+
+  The gaps are the deliverable. A compliance export is the easiest artefact in the system to
+  make dishonest — nothing in the code path punishes marking everything green — so the tests
+  are mostly there to make optimism fail: every incomplete requirement must state what is
+  missing, and `test_the_export_does_not_claim_full_coverage` fails if the gaps are ever
+  rounded up. Retention is `not_covered` outright, because it is a deployment property with
+  no policy, period or deletion path here, and omitting it would read as handled.
+
+  **Two behaviours worth keeping.** Supplying no receipt downgrades integrity from covered
+  to partial rather than asserting it — a signature proves authorship, not that a record was
+  never withheld. And `invariant` is never reported as unresolved: only `unknown` is the
+  absence of evidence.
+
+  That second one was a real bug I wrote and caught on the live warrant. The first version
+  collected every field whose status was not `attributed`, so it reported `amount` and
+  `currency` as having "no measured cause" when both are `invariant` — design decision 6's
+  exact flattening, inside a document a regulator would read. Fixed, and
+  `test_invariant_is_never_reported_as_unresolved` pins it.
 - **Real-model measurement** (open question 9) — the adapter already runs against
   `HttpModelClient`; it needs a key and a budget. Single biggest credibility upgrade to every
   number in `results/`. Run it offline and publish the numbers; do not wire it into the
