@@ -94,7 +94,7 @@ nothing.
 | 5a — Public API, endpoints | **Done** | `aegis/api/`, `aegis/log/storage.py`, `tests/test_api.py`, `tests/test_log_storage.py` |
 | 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
 | 6a — CORS, attack lab, replay | **Done** | `aegis/api/attacks.py`, `Run.evidence`, CORS, `POST /v1/runs/{id}/replay`, `tests/test_api_attacks.py` |
-| 6b — Console | **Next** | Next.js + TypeScript, responsive, interactive |
+| 6b — Console, screens 1–3 | **Partial** | `web/` — Next 16 + TS + Tailwind v4. Runner, live counterfactuals, three-state evidence, verdict, classified context. Screens 4–6 pending |
 | 7 — Ship it | Pending | containers, CI, hosting, the public launch |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
@@ -733,6 +733,38 @@ reaches "I attacked it myself, two of my attacks worked, and it told me so."
 Next.js App Router + TypeScript + Tailwind + shadcn/ui. Responsive is a stated requirement,
 so mobile is a test case rather than an afterthought. Frontend on Vercel, backend container
 on Railway or Fly.
+
+### What exists as of 2026-08-13
+
+**Directory is `web/`, not `console/`.** npm refuses a package named `console` — it is a
+Node core module name — and `create-next-app` names the package after the directory. The
+docs still call it the console.
+
+Built and **verified in a real browser against a live API**, not asserted: pick a scenario,
+run it, watch counterfactuals stream in one at a time, read per-argument attribution, see
+the payment API refuse. Shared log observed growing 0 → 1. Screens 1, 2, 3 and the decision
+half of 4 are up; the attack lab and the auditor view are not.
+
+- `web/lib/api.ts` — typed client. The SSE reader splits on blank lines rather than parsing
+  line-by-line, because a chunk boundary can land mid-frame and a parser that assumes whole
+  events per read drops data under exactly the conditions streaming exists for.
+- `web/components/EvidencePanel.tsx` — **the one that carries design decision 6.** Only
+  `attributed` gets a bar. `invariant` is a bordered panel saying the value is redundantly
+  determined; `unknown` is hatched with "no comparable run exists". Three forms, not three
+  shades — a bar renders the last two identically, which is the flattening that made an
+  earlier version of this system refuse a legitimate payment.
+- Premium dark treatment throughout: Bebas Neue display, DM Sans body, JetBrains Mono for
+  hashes, film grain, custom cursor, magnetic primary button. Cursor and magnetism are both
+  gated on `(pointer: fine)` and off under `prefers-reduced-motion`; the grain layer is
+  `pointer-events-none`, because an overlay silently eating clicks is the classic version of
+  that bug.
+
+**Not yet verified: mobile.** The desktop path was driven end to end in Chrome. A resize to
+390px through the automation tooling did not produce a trustworthy viewport, so responsive
+is **unconfirmed** rather than working — check it before believing it.
+
+**Tailwind resolves class names statically**, so a constructed `text-${tone}` never gets
+generated. Verdict colours are inline styles off the CSS custom properties for that reason.
 
 ---
 

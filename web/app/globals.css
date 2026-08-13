@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+/**
+ * A single committed dark palette. This is an evidence console, not a page that should
+ * follow the OS into a light theme halfway through an audit -- so the colours are stated
+ * once and there is no prefers-color-scheme block.
+ */
+:root {
+  --ink: #08090b;
+  --ink-raised: #0e1014;
+  --ink-panel: #12151a;
+  --line: #1f242c;
+  --line-bright: #2c333d;
+  --text: #e9e7e4;
+  --text-dim: #9aa1ac;
+  --text-faint: #666e7a;
+
+  /* One bold accent, used for the brand and for nothing semantic. */
+  --accent: #f5b544;
+
+  /* Provenance classes. Trust runs cool-to-warm; P3 is the one that means danger. */
+  --p0: #34d399;
+  --p1: #38bdf8;
+  --p2: #a78bfa;
+  --p3: #fb7185;
+  --p4: #fbbf24;
+
+  --permit: #34d399;
+  --reject: #fb7185;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-raised: var(--ink-raised);
+  --color-ink-panel: var(--ink-panel);
+  --color-line: var(--line);
+  --color-line-bright: var(--line-bright);
+  --color-text: var(--text);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-p0: var(--p0);
+  --color-p1: var(--p1);
+  --color-p2: var(--p2);
+  --color-p3: var(--p3);
+  --color-p4: var(--p4);
+  --color-permit: var(--permit);
+  --color-reject: var(--reject);
+
+  --font-display: var(--font-bebas);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-mono-code);
+}
+
+html {
+  background: var(--ink);
+}
+
+body {
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Display type. Bebas is all-caps by design; the tracking keeps it from reading as a
+   compressed headline squeeze. */
+.display {
+  font-family: var(--font-bebas), Impact, sans-serif;
+  letter-spacing: 0.02em;
+  line-height: 0.92;
+}
+
+.mono {
+  font-family: var(--font-mono-code), ui-monospace, monospace;
+  font-variant-ligatures: none;
+}
+
+/**
+ * Film grain. Fixed and pointer-events-none so it never intercepts a click -- a preloader
+ * or overlay silently eating clicks is the classic version of this bug.
+ */
+.noise::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Scroll reveal. Starts visible and is *hidden* by script, so a visitor with JS disabled
+   or a hydration failure reads the page rather than a blank column. */
+.reveal {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal[data-armed="true"] {
+  opacity: 0;
+  transform: translateY(18px);
+}
+.reveal[data-armed="true"][data-shown="true"] {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal[data-armed="true"] {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.live-dot {
+  animation: pulse-soft 1.4s ease-in-out infinite;
+}
+
+/* Hatching for the `unknown` argument state. Deliberately not a bar: a bar at 0% and a
+   bar at 100% are the same visual language, and design decision 6 is the finding that
+   these are different kinds of answer rather than different amounts of one. */
+.hatched {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--line-bright) 0px,
+    var(--line-bright) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--ink);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ink);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-bright);
+  border-radius: 6px;
+}
