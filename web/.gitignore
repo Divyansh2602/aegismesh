@@ -32,6 +32,11 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template, which documents the one variable the console needs and carries
+# no secret by construction: NEXT_PUBLIC_ values are compiled into the client bundle. The
+# scaffold's bare `.env*` is broader than the repo root's rule and silently swallowed it,
+# which makes a committed example impossible rather than merely absent.
+!.env.example
 
 # vercel
 .vercel
