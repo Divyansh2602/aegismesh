@@ -123,11 +123,11 @@ signal away.
 | 3 — Warrants, log, enforcement | ✅ | **The system refuses.** Poisoned invoice runs end to end, the payment API rejects it, and an inclusion proof survives verification by a third party holding two public keys |
 | 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
 | 5 — Public API | ✅ | Sessions, runs, bring-your-own-injection, a shared transparency log that survives a restart, auditor artifacts that verify offline — and an SSE stream that reports **every ablation as it completes**, with abuse controls that name the control refusing you |
-| 6 — Console | ⬜ | Next.js front end over the API |
-| 7 — Ship it | ⬜ | Containers, CI, hosting, the public URL |
+| 6 — Console | ✅ | Next.js console over the real API: run a scenario, watch counterfactuals stream in, read per-argument attribution in three distinct states, attack the defence, and download artifacts that verify on your own machine |
+| 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-372 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+673 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -193,7 +193,58 @@ it:
 The Phase 3 demo runs the attack, then attacks the defence: the operator edits the warrant
 (signature breaks), signs a permit anyway (the payment API denies on its own policy), forks
 the transparency log (an independent witness catches it), and replays a valid warrant onto a
-larger transfer (the arguments binding rejects it).
+larger transfer (the arguments binding rejects it). All four are also reachable from the
+console and from `POST /v1/runs/{id}/attacks/{name}`.
+
+### The console
+
+```bash
+uvicorn aegis.api.app:app --port 8000     # terminal 1
+cd web && npm install && npm run dev       # terminal 2  →  http://localhost:3000
+```
+
+Pick a scenario or write your own injection, watch the six pipeline stages advance and the
+counterfactuals arrive one at a time, read per-argument attribution where `attributed`,
+`invariant` and `unknown` are three visually distinct states rather than three numbers, then
+attack the warrant you just produced and download the three files that verify offline.
+
+`POST /v1/evaluation` scores the whole labelled case set in one request — the same
+`run_evaluation` the Phase 2 demo calls, so the grid in the console and the numbers in
+`results/` cannot drift apart. A single run proves little; the clean cases are what make the
+poisoned ones mean anything.
+
+## Deploying it
+
+CI runs `ruff`, the test suite, all four demos and the standalone verifier on every push, on
+Python 3.11 and 3.13, plus lint and build for the console.
+
+**API — Render.** [`render.yaml`](render.yaml) is a Blueprint: point Render at this repo and
+it builds [`Dockerfile`](Dockerfile) and mounts a disk for the log.
+
+> The disk is not optional and it is not free. Render's free instances have an ephemeral
+> filesystem and sleep when idle, so on a free plan the transparency log resets on every
+> wake — which destroys the one property a returning visitor can test personally, that the
+> tree grew between two visits and still verifies against the head they were given. Disks
+> need a paid instance plus $0.25/GB/month. To run without one, delete the `disk:` block
+> **and** `AEGIS_API_LOG_DATABASE` together; setting the path with no disk behind it is the
+> worst case, because `/health` then reports `log_durable: true` while the history silently
+> restarts.
+
+`AEGIS_API_LOG_SEED` is generated once by Render and kept stable, which is the actual
+requirement: it must be secret *and* unchanging, because a log whose signing key changes is a
+log whose entire signed history stops verifying. The default committed in `config.py` is
+published here and must never sign a durable log — the service logs a warning if it is.
+
+**Console — Vercel.** Root directory `web`, and set `NEXT_PUBLIC_AEGIS_API` to the Render
+URL. Then set `AEGIS_API_CORS_ORIGINS` on the API to the Vercel origin: the console talks to
+the API from the browser, so a missing origin fails at the preflight and every screen is
+blank.
+
+`AEGIS_API_TRUST_FORWARDED_FOR=true` is set in the Blueprint because Render terminates TLS at
+its proxy. Without it every visitor shares one rate-limit bucket and the first busy minute
+locks everyone out. It stays off by default everywhere else, because honouring
+`X-Forwarded-For` when you are not behind a proxy you control lets a caller pick its own
+bucket — worse than having no limiter, because it looks like one.
 
 ## Attacking our own design
 

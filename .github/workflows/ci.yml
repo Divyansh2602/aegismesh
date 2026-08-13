@@ -1,0 +1,103 @@
+# CI for a project whose selling point is verifiability.
+#
+# The demos and the standalone verifier run here, not just the unit tests. A green check
+# that only proves `pytest` passed would say nothing about the claim this repository
+# actually makes -- that the pipeline runs end to end and that the artifacts it produces
+# verify offline with nothing but two public keys and a root hash. So the last step is the
+# same command an auditor would run, on a machine that has never seen this project before.
+#
+# Everything below runs offline. No API key, no network calls to a model provider, no cost.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A second push supersedes the first; there is no value in finishing a run for a commit
+  # nobody will look at.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: aegis · py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in pyproject and the version actually developed against.
+        # Anything between them is covered by the language's own guarantees; these two are
+        # where a real incompatibility would show up.
+        python: ["3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Demos
+        # Each one exits non-zero if the property it demonstrates stops holding -- the
+        # Phase 3 demo fails if the poisoned transfer is admitted or the clean one refused,
+        # so these are assertions rather than illustrations.
+        run: |
+          python demo/phase1_demo.py
+          python demo/phase2_eval.py
+          python demo/phase3_demo.py
+          python demo/phase4_attack.py
+
+      - name: Standalone verifier
+        # The claim this project exists to make, checked the way a stranger would check it.
+        run: |
+          python tools/verify_warrant.py \
+            results/phase3_warrant.json \
+            results/phase3_receipt.json \
+            results/phase3_trust_anchors.json
+
+      # Deliberately *not* asserted here: that results/ is unchanged after the demos run.
+      # Warrants carry a fresh UUID and current timestamps, so those files differ on every
+      # execution by design. A "nothing drifted" check would fail on every commit and be
+      # switched off within a week, which is worse than not having it.
+
+  console:
+    name: console
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npx eslint . --max-warnings=0
+
+      - name: Build
+        # `next build` runs the TypeScript compiler, so this is the typecheck too.
+        run: npm run build

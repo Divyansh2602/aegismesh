@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Any
@@ -56,6 +57,8 @@ SESSION_HEADER = "X-Aegis-Session"
 
 ARTIFACT_FILES = ("warrant", "receipt", "trust_anchors")
 
+logger = logging.getLogger("aegis.api")
+
 
 class RunRequest(BaseModel):
     scenario: str = Field(default="injection_via_conduit_tool")
@@ -88,8 +91,58 @@ def create_app(
     app.state.attribution_slots = asyncio.Semaphore(config.max_concurrent_attributions)
     app.middleware("http")(_limit_request_size)
     _add_cors(app, config)
+    app.add_exception_handler(Exception, _unhandled)
+    _warn_about_demo_key(config)
     app.include_router(_router())
     return app
+
+
+async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+    """Return an opaque failure and keep the detail server-side.
+
+    A stack trace in an HTTP response tells a stranger the framework, the file layout, the
+    library versions and often a fragment of state. None of that helps the caller: a bug
+    here is ours, and there is nothing they can do differently. So the client gets an
+    incident id and the log gets the traceback, and the two are joined by that id when
+    somebody reports it.
+
+    Deliberate refusals do not come through here. ``HTTPException`` — including every
+    control refusal from ``limits.refuse`` — is handled by Starlette before this, so the
+    responses that *name the control that refused* keep their bodies. This handler exists
+    only for the failures nobody designed.
+    """
+    incident = prefixed_id("inc")
+    logger.exception(
+        "unhandled error incident=%s method=%s path=%s",
+        incident,
+        request.method,
+        request.url.path,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "internal error",
+            "incident": incident,
+            "note": "The detail is in the service log under this incident id.",
+        },
+    )
+
+
+def _warn_about_demo_key(config: ApiSettings) -> None:
+    """Say something loud if a durable log is being signed with the published demo key.
+
+    ``log_seed`` has a default that is committed to this repository, which is exactly why
+    it must never sign anything anybody relies on. It is harmless while the log is
+    in-memory and a demo; it is not harmless once the log is durable, because then a
+    stranger who read the source can forge signed tree heads for a history that persists.
+    """
+    if config.log_database and config.log_seed == ApiSettings.model_fields["log_seed"].default:
+        logger.warning(
+            "AEGIS_API_LOG_SEED is the published default while AEGIS_API_LOG_DATABASE is "
+            "set (%s). Anyone who has read this repository can sign tree heads for this "
+            "log. Set it from a secrets manager before this is reachable by anyone.",
+            config.log_database,
+        )
 
 
 def _add_cors(app: FastAPI, config: ApiSettings) -> None:

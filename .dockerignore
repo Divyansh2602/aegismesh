@@ -1,0 +1,54 @@
+# Keep the build context small and keep local state out of the image.
+#
+# The transparency log database is the important entry. A committed or copied-in log would
+# be a dead snapshot of somebody's laptop whose roots were signed by the published demo
+# key, shipped into a deployment that is supposed to build its own history.
+
+.git
+.github
+.gitignore
+
+# Local state and caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.remember/
+.claude/
+.vscode/
+.idea/
+
+# Transparency log databases -- never bake one into an image.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Secrets. Nothing here needs one, so anything matching is an accident.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+secrets.json
+
+# The console is deployed separately (Vercel), so it is not part of the API image.
+web/
+
+# Not needed at runtime: the demos and tests import from `aegis`, which is installed, and
+# the image is a service rather than a development environment.
+tests/
+demo/
+docs/
+results/
+Dockerfile
+.dockerignore
+*.md
+!README.md

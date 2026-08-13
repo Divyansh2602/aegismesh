@@ -1,0 +1,54 @@
+# Render Blueprint for the API. The console deploys separately to Vercel.
+#
+# ------------------------------------------------------------------ read this first
+# **The disk is not optional, and it is not free.** Render's free instances have an
+# ephemeral filesystem and sleep when idle, so on a free plan the transparency log resets
+# every time the service wakes. That does not merely lose data: it destroys the one
+# property a returning visitor can test personally — that the tree grew between two visits
+# and still verifies against the head they were handed last time — which is the most
+# convincing artifact this project has.
+#
+# Persistent disks require a paid instance (`starter`) plus $0.25/GB/month for the disk.
+# If that is not wanted yet, delete the `disk:` block *and* the AEGIS_API_LOG_DATABASE
+# variable together. Leaving the variable set without a disk is the worst of both: the log
+# writes to a path that vanishes, and `/health` reports `log_durable: true` while the
+# history silently restarts.
+services:
+  - type: web
+    name: aegis-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: true
+
+    disk:
+      name: aegis-log
+      mountPath: /data
+      # Entries are canonicalized warrant documents of a few kilobytes. 1GB holds a very
+      # large number of them; the log is bounded by attention, not by storage.
+      sizeGB: 1
+
+    envVars:
+      - key: AEGIS_API_LOG_DATABASE
+        value: /data/aegis-log.sqlite3
+
+      # Generated once by Render and kept stable across deploys, which is exactly the
+      # requirement: the seed must be secret *and* unchanging. A log whose signing key
+      # changes is a log whose entire signed history stops verifying, so rotating this is
+      # not a hygiene improvement — it is a break. The committed default in config.py is
+      # published in this repository and must never sign a durable log.
+      - key: AEGIS_API_LOG_SEED
+        generateValue: true
+
+      # Render terminates TLS at its proxy, so every request arrives from the same
+      # internal address. Without this the per-client rate limiter puts every visitor in
+      # one bucket and the first busy minute locks everyone out. It is off by default
+      # because honouring the header anywhere else lets a caller choose its own bucket.
+      - key: AEGIS_API_TRUST_FORWARDED_FOR
+        value: "true"
+
+      # The console's origin. Set in the dashboard after Vercel assigns the domain --
+      # `sync: false` means Render will not overwrite it from this file on redeploy.
+      - key: AEGIS_API_CORS_ORIGINS
+        sync: false

@@ -280,6 +280,39 @@ class TestTheAttackLabDrivesTheRealDefence:
         assert first.json()["mutation"] == second.json()["mutation"]
 
 
+class TestFailuresDoNotLeakTheInside:
+    async def test_an_unhandled_error_returns_an_incident_id_not_a_traceback(self):
+        """A stack trace tells a stranger the framework, the file layout and often a
+        fragment of state, and helps the caller with none of it."""
+        app = build_app()
+
+        @app.get("/boom")
+        async def boom():  # pragma: no cover - exists only to raise
+            raise RuntimeError("secret-internal-detail-xyz")
+
+        transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=transport, base_url="http://api") as http:
+            response = await http.get("/boom")
+
+        assert response.status_code == 500
+        body = response.text
+        assert "secret-internal-detail-xyz" not in body
+        assert "Traceback" not in body
+        assert response.json()["incident"].startswith("inc_")
+
+    async def test_a_control_refusal_still_names_its_control(self, client):
+        """The generic handler must not swallow the refusals that are the point. Control
+        refusals are HTTPExceptions and are handled before it ever runs."""
+        session = await open_session(client)
+        response = await client.post(
+            "/v1/runs",
+            json={"scenario": "custom", "injection": "A" * 70_000},
+            headers={SESSION_HEADER: session},
+        )
+        assert response.status_code == 413
+        assert response.json()["detail"]["control"] == "API-SIZE"
+
+
 class TestTheScoredSweepIsTheComparison:
     async def test_the_sweep_scores_every_labelled_case(self, client):
         session = await open_session(client)

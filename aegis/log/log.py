@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from aegis.common.hashing import HASH_PREFIX, canonical_json
 from aegis.log import merkle
+from aegis.log.incremental import IncrementalTree
 from aegis.log.storage import InMemoryLogStorage, LogStorage
 from aegis.warrant.keys import SigningKey, VerifyingKey, multibase_decode
 from aegis.warrant.models import iso, utc_now
@@ -102,26 +103,32 @@ class TransparencyLog:
     ) -> None:
         """``storage`` defaults to in-memory, which is what every demo and test wants.
 
-        The leaves are held in memory either way and recomputed from the stored entries
-        on load. Proofs touch the whole leaf array, so serving them from the database
-        would turn an O(log n) proof into O(n) queries for a tree small enough to fit in
-        a few megabytes -- storage is for surviving a restart, not for the read path.
+        The tree is held in memory either way and rebuilt from the stored entries on load.
+        Proofs read cached internal nodes, so serving them from the database would turn an
+        O(log n) proof into O(n) queries for a tree small enough to fit in a few megabytes
+        -- storage is for surviving a restart, not for the read path.
+
+        The tree is an ``IncrementalTree`` rather than a leaf list walked by
+        ``merkle.root_hash``. Both produce identical roots and proofs and the tests assert
+        exactly that; what changed is the cost. Recomputing made ``append`` O(n) and
+        building a log O(n^2), which was invisible while the log reset on every restart and
+        became a real curve once Phase 5a made it durable and shared.
         """
         self.log_id = log_id
         self.signing_key = signing_key
         self.storage: LogStorage = InMemoryLogStorage() if storage is None else storage
         self._entries: list[bytes] = self.storage.load()
-        self._leaves: list[bytes] = [merkle.leaf_hash(entry) for entry in self._entries]
+        self._tree = IncrementalTree([merkle.leaf_hash(entry) for entry in self._entries])
 
     def __len__(self) -> int:
-        return len(self._leaves)
+        return self._tree.size
 
     @property
     def tree_size(self) -> int:
-        return len(self._leaves)
+        return self._tree.size
 
     def root(self) -> bytes:
-        return merkle.root_hash(self._leaves)
+        return self._tree.root()
 
     def append(self, document: dict[str, Any]) -> Receipt:
         """Add a warrant document and return its receipt.
@@ -132,7 +139,7 @@ class TransparencyLog:
         """
         entry = canonical_json(document)
         leaf = merkle.leaf_hash(entry)
-        index = len(self._leaves)
+        index = self._tree.size
 
         # Durable first. If the write fails, the in-memory tree must not advance past what
         # was persisted, or a restart would silently produce a *shorter* log than the one
@@ -140,24 +147,23 @@ class TransparencyLog:
         self.storage.append(index, entry, leaf)
 
         self._entries.append(entry)
-        self._leaves.append(leaf)
+        self._tree.append(leaf)
         return self.receipt_for(index)
 
     def receipt_for(self, index: int) -> Receipt:
-        size = len(self._leaves)
         return Receipt(
             log_id=self.log_id,
             leaf_index=index,
-            tree_size=size,
+            tree_size=self._tree.size,
             root_hash=encode_hash(self.root()),
-            inclusion_proof=[encode_hash(h) for h in merkle.inclusion_proof(self._leaves, index)],
+            inclusion_proof=[encode_hash(h) for h in self._tree.inclusion_proof(index)],
             signed_root=self.signed_tree_head(),
         )
 
     def signed_tree_head(self) -> SignedTreeHead:
         head = SignedTreeHead(
             log_id=self.log_id,
-            tree_size=len(self._leaves),
+            tree_size=self._tree.size,
             root_hash=encode_hash(self.root()),
             timestamp=iso(utc_now()),
         )
@@ -165,7 +171,7 @@ class TransparencyLog:
         return head
 
     def consistency_proof(self, first_size: int) -> list[str]:
-        return [encode_hash(h) for h in merkle.consistency_proof(self._leaves, first_size)]
+        return [encode_hash(h) for h in self._tree.consistency_proof(first_size)]
 
     def entry(self, index: int) -> bytes:
         return self._entries[index]

@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **398 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **675 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -95,7 +95,7 @@ nothing.
 | 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
 | 6a — CORS, attack lab, replay | **Done** | `aegis/api/attacks.py`, `Run.evidence`, CORS, `POST /v1/runs/{id}/replay`, `tests/test_api_attacks.py` |
 | 6b — Console, all six screens | **Done** | `web/` — Next 16 + TS + Tailwind v4. Runner, stepper, live counterfactuals, three-state evidence, verdict, context, attack lab, auditor view, scored case grid |
-| 7 — Ship it | Pending | containers, CI, hosting, the public launch |
+| 7 — Ship it | **Built, not deployed** | `.github/workflows/ci.yml`, `Dockerfile`, `render.yaml`, incremental Merkle tree, error handler. The deploy itself needs Divyansh's accounts |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
 ### Phase 4 measured results (`results/phase4_agentdojo.json`)
@@ -840,7 +840,66 @@ re-rendering a component would not be bounded by it.
 
 ---
 
-## Phase 7 — ship it
+## Phase 7 — what is built, and the one step left
+
+**Everything except the deploy itself is done and verified.** The remaining step needs
+Divyansh's Render and Vercel accounts, which is why it stops here rather than being half-done.
+
+| Built | Verified how |
+| --- | --- |
+| `.github/workflows/ci.yml` | ruff, pytest, all four demos and the standalone verifier, on Python 3.11 and 3.13, plus console lint and build. **Not yet observed green on GitHub** — first push runs it |
+| `Dockerfile` + `.dockerignore` | Image built, container run, `whoami` → `aegis` (non-root), poisoned run returned REJECT, and the durable log **survived `docker restart` with a byte-identical root** |
+| `render.yaml` | Blueprint with the disk, health check, generated log seed, and `trust_forwarded_for` |
+| `web/.env.example` | The one variable the console needs |
+| Unhandled-error handler | Returns an incident id, never a traceback; control refusals still name their control. Both pinned by tests |
+
+### Decisions worth defending
+
+- **CI runs the demos and the verifier, not only `pytest`.** A green check that proved the
+  unit tests pass would say nothing about the claim this repository makes. The last step is
+  the command an auditor would run, on a machine that has never seen the project.
+- **CI deliberately does *not* assert `results/` is unchanged after the demos run.** Warrants
+  carry a fresh UUID and current timestamps, so those files differ on every execution by
+  design. That check would fail on every commit and be switched off within a week, which is
+  worse than not having it. It was written, caught, and removed before it landed.
+- **The container runs as a non-root user with one writable path.** The API executes
+  attacker-supplied *text*, never attacker-supplied code — but running as root because
+  nothing is known to escape is the reasoning this project exists to criticize.
+- **`CMD` is JSON form wrapping `sh -c ... exec`.** Bare shell form leaves `sh` as PID 1,
+  which swallows SIGTERM: the container gets killed rather than shut down and uvicorn never
+  closes its open SSE streams. `exec` makes uvicorn PID 1 while still expanding `$PORT`.
+- **The error handler cannot swallow the refusals that are the point.** `HTTPException` —
+  including every control refusal from `limits.refuse` — is handled by Starlette *before* it,
+  so the responses that name the control keep their bodies. The handler exists only for
+  failures nobody designed. `test_a_control_refusal_still_names_its_control` pins that.
+
+### Render specifically, and the cost that is not optional
+
+**Free instances cannot attach a persistent disk** (confirmed against Render's current terms,
+2026-08-13) and they sleep when idle. On a free plan the transparency log therefore resets on
+every wake, which does not merely lose data — it destroys the one property a returning visitor
+can test personally. Disks require a paid instance plus $0.25/GB/month.
+
+If the disk is dropped, **delete `AEGIS_API_LOG_DATABASE` with it**. Setting the path with no
+disk behind it is the worst case: `/health` reports `log_durable: true` while the history
+silently restarts.
+
+`AEGIS_API_LOG_SEED` uses Render's `generateValue`, which mints it once and keeps it stable —
+secret *and* unchanging, which is the actual requirement, because a log whose signing key
+changes is a log whose entire signed history stops verifying. The service logs a warning if a
+durable log is running on the published default.
+
+### The remaining step
+
+1. Render → New Blueprint → point at this repo. Confirm the paid instance and the disk.
+2. Vercel → import, root directory `web`, set `NEXT_PUBLIC_AEGIS_API` to the Render URL.
+3. Set `AEGIS_API_CORS_ORIGINS` on Render to the Vercel origin. **Without this every screen
+   is blank** — the console talks to the API from the browser and fails at the preflight.
+4. Put the URL at the top of the README, and flip the repo public.
+
+---
+
+## Phase 7 — the original plan
 
 **Definition of done:** the URL is in the README, it survives a stranger, and it stays up.
 
@@ -855,7 +914,25 @@ re-rendering a component would not be bounded by it.
 4. Health checks, structured logs, an error page that does not leak stack traces.
    `GET /health` exists and reports tree size, durability and the model label.
 5. Custom domain, and the demo URL at the top of the README.
-6. **The log's append cost is quadratic in its size, and the log now survives restarts.**
+6. ~~**The log's append cost is quadratic in its size.**~~ **Fixed 2026-08-13** —
+   `aegis/log/incremental.py`. `merkle.py` is untouched and is now the executable
+   *specification*; `IncrementalTree` is what runs, and `tests/test_incremental_tree.py`
+   asserts they agree on the root for every size 0–130 and on every inclusion and
+   consistency proof for every size 1–65 and every index and split point. Keeping both is
+   only defensible because a disagreement is a test failure rather than a silent
+   divergence — which is a stronger position than having one implementation.
+
+   RFC 6962 splits at the largest power of two, which makes the tree left-complete, so it
+   stores as levels where a canonical subtree root is a lookup instead of a walk. Appending
+   touches only the right spine. Measured before → after: building 20 000 leaves
+   **727 s → 1.58 s (459×)**, a single append at that size **73 ms → 0.083 ms**,
+   `signed_tree_head` **19.2 ms → 0.07 ms**. Build is now linear and append is flat across a
+   200× size range. The original quadratic measurement is kept below because the reasoning
+   is the useful part:
+
+   *(historical)* building n leaves took 22.6 ms at n=100, 1.53 s at n=1 000, 36.7 s at
+   n=5 000, 727 s at n=20 000 — 4× the leaves for 19.8× the time. `root()` rehashed the
+   whole leaf list and `append` walked the tree three times.
    Measured 2026-08-13, not inferred: building a tree of *n* leaves takes 22.6 ms at
    n=100, 1.53 s at n=1 000, 36.7 s at n=5 000, 727 s at n=20 000 — 4× the leaves for
    19.8× the time, which is n². `root()` rehashes the whole leaf list and `append` walks
