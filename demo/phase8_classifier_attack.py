@@ -24,10 +24,13 @@ from aegis.evaluation.classifier_attacks import AttackOutcome, run_attacks
 #: of these starts holding, a limitation was closed and the docs need updating — the demo
 #: says so rather than quietly turning green.
 KNOWN_BROKEN = {
-    "unclassified_content_part",
     "forged_tool_name",
     "mandate_echoed_before_the_real_one",
 }
+"""``unclassified_content_part`` was here and was fixed: the extraction rule now lives in
+one place, ``provenance/content.py``, imported by both the classifier and ablation, and it
+keeps any part carrying a ``text`` field rather than only ``type == "text"``. It is the one
+finding of the three whose fix cost nothing to get right."""
 
 
 def rule(title: str) -> None:

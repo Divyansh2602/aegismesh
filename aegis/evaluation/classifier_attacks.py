@@ -14,8 +14,11 @@ a narrative. Attacks that **succeed** stay in the output and are the point, exac
 ``demo/phase4_attack.py`` — two of that phase's four scenes end with the attacker winning
 and both were kept.
 
-Three findings here are real and are reported as such rather than quietly fixed and
-forgotten; see ``docs/THREAT_MODEL.md`` section 6.
+Three findings here are real. One (F1, unclassified content parts) was fixed in the same
+phase, because "everything the model reads gets classified" costs nothing to be right
+about; the attack stays in the suite as its regression test. Two remain open and are
+reported rather than quietly forgotten -- see ``docs/THREAT_MODEL.md`` section 6 for why
+neither fix is free.
 """
 
 from __future__ import annotations

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 from aegis.attribution.ablation import ablate
+from aegis.attribution.ablation import message_text as ablation_message_text
 from aegis.evaluation.classifier_attacks import (
     ATTACKER,
     MANDATE,
@@ -26,6 +27,9 @@ from aegis.evaluation.classifier_attacks import (
     run_attacks,
 )
 from aegis.provenance.classes import ProvenanceClass
+from aegis.provenance.classifier import _as_text as classifier_as_text
+from aegis.provenance.content import content_text, untyped_part_kinds
+from aegis.provenance.content import message_text as shared_message_text
 
 
 class TestTheSuiteItself:
@@ -48,20 +52,29 @@ class TestTheSuiteItself:
             assert outcomes[name].held, f"{name} is a control and must hold"
 
     def test_the_expected_number_of_attacks_succeed(self):
-        """Pins the count so a new finding cannot arrive unnoticed in either direction."""
+        """Pins the count so a new finding cannot arrive unnoticed in either direction.
+
+        `unclassified_content_part` was in this set and is not any more — it is the one
+        finding of the three whose fix involved no trade-off, because "everything the model
+        reads gets classified" costs nothing to be right about.
+        """
         broken = {o.name for o in run_attacks() if not o.held}
         assert broken == {
-            "unclassified_content_part",
             "forged_tool_name",
             "mandate_echoed_before_the_real_one",
         }
 
 
-class TestContentTheClassifierNeverSees:
-    """Finding 1. The most serious of the three, because it is invisible."""
+class TestEveryByteTheModelReadsIsClassified:
+    """Finding 1, now fixed. These assert the property, not the bug.
 
-    def test_a_non_text_content_part_is_never_classified(self):
-        """Documents the bug. Passes *because* the system is wrong."""
+    The property: **the classified text and the text the model receives are the same
+    text.** Nothing enforced it, which is how a part typed ``input_text`` came to be
+    classified by nobody and ablatable by nobody — content able to influence an action
+    with no provenance, and no counterfactual able to test it.
+    """
+
+    def test_a_part_typed_input_text_is_classified(self):
         body = {
             "messages": [
                 {
@@ -74,40 +87,21 @@ class TestContentTheClassifierNeverSees:
             ]
         }
         trace = classifier().classify(body)
-        assert PAYLOAD not in classified_text(trace), (
-            "the payload is now classified — finding 1 is fixed, update the docs"
-        )
+        assert PAYLOAD in classified_text(trace)
 
-    def test_and_therefore_no_counterfactual_can_test_it(self):
-        """Why the coverage gap matters more than a misclassification would.
+    def test_the_classified_text_is_the_text_ablation_removes(self):
+        """The structural guarantee, asserted on identity rather than on behaviour.
 
-        Attribution can only ablate what classification produced. Content that is never a
-        segment is not merely mislabelled: it is outside the measurement entirely, so no
-        ablation can establish whether it caused anything.
+        This rule existed twice — `classifier._as_text` and `ablation.message_text` — and
+        the two silently disagreed for four phases. Behavioural equality would only prove
+        they agree on the cases someone thought to write down; identity proves they cannot
+        disagree at all.
         """
-        body = {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": MANDATE},
-                        {"type": "input_text", "text": PAYLOAD},
-                    ],
-                }
-            ]
-        }
-        trace = classifier().classify(body)
-        assert not any(PAYLOAD in s.text for s in trace.segments)
+        assert classifier_as_text is content_text
+        assert ablation_message_text is shared_message_text
 
-    def test_reconstruction_silently_drops_it_from_every_counterfactual(self):
-        """The part that makes this a *measurement* failure rather than a coverage one.
-
-        The payload is present in the baseline the model answered and absent from every
-        ablated body — not because it was ablated, but because reconstruction flattens the
-        content list into a string and keeps only `type == "text"`. Every counterfactual
-        therefore differs from the baseline by more than the segment under test, and the
-        payload's effect is folded into whatever else was being measured.
-        """
+    def test_the_payload_is_now_ablatable(self):
+        """Coverage is only worth something if a counterfactual can act on it."""
         body = {
             "messages": [
                 {
@@ -120,15 +114,26 @@ class TestContentTheClassifierNeverSees:
             ]
         }
         trace = classifier().classify(body)
-        assert trace.segments, "the text part should still classify"
+        carrying = [s for s in trace.segments if PAYLOAD in s.text]
+        assert carrying, "the payload must belong to a segment before it can be ablated"
 
-        for segment in trace.segments:
+        removed = 0
+        for segment in carrying:
             ablated = ablate(body, segment)
-            if ablated is None:
-                continue
-            assert PAYLOAD not in json.dumps(ablated), (
-                "reconstruction now preserves unrecognised parts — finding 1 is fixed"
-            )
+            if ablated is not None and PAYLOAD not in json.dumps(ablated):
+                removed += 1
+        assert removed, "ablating the segment carrying the payload must remove it"
+
+    def test_parts_carrying_no_text_are_named_rather_than_ignored(self):
+        """An image is content this system genuinely cannot classify. Saying so is the
+        honest answer; dropping it silently is the one that was exploitable."""
+        kinds = untyped_part_kinds(
+            [
+                {"type": "text", "text": MANDATE},
+                {"type": "image_url", "image_url": {"url": "https://example/x.png"}},
+            ]
+        )
+        assert kinds == ["image_url"]
 
 
 class TestTrustFromANameAlone:

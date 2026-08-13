@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
+from aegis.provenance.content import message_text as shared_message_text
 from aegis.provenance.models import MessageLocator, Segment, ToolLocator
 
 AblationMode = Literal["placeholder", "delete"]
@@ -39,17 +40,11 @@ def neutral_placeholder(length: int) -> str:
     return (_PLACEHOLDER_FILLER * repeats)[:length]
 
 
-def message_text(message: dict) -> str:
-    content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict) and part.get("type") == "text"
-        )
-    return "" if content is None else str(content)
+#: Re-exported from ``provenance/content.py`` rather than reimplemented. Ablation must
+#: remove exactly the text classification labelled, and the surest way to guarantee that is
+#: for both to call one function. Two copies of this rule disagreed for four phases and the
+#: divergence was only found by attacking it -- see THREAT_MODEL section 6, finding F1.
+message_text = shared_message_text
 
 
 def ablate(body: dict, segment: Segment, mode: AblationMode = "placeholder") -> dict | None:

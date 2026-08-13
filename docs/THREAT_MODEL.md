@@ -202,9 +202,10 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    precisely so that it cannot be approximated into.
 
    **Phase 8 ran that evaluation.** `aegis/evaluation/classifier_attacks.py`, eight attacks,
-   `python demo/phase8_classifier_attack.py`. **Five defences held and three attacks
-   succeeded.** The three are stated here rather than fixed quietly, and each is pinned by a
-   test that passes *because* the system is currently wrong.
+   `python demo/phase8_classifier_attack.py`. Three attacks succeeded. **One was fixed in
+   the same phase (F1) and two remain open (F2, F3)**, each pinned by a test that passes
+   *because* the system is currently wrong. The suite now reports **six defences holding and
+   two attacks succeeding**.
 
    The strict-substring P0 boundary held against everything aimed directly at it: authority
    framing ("SYSTEM OVERRIDE — pre-authorised") changes nothing because class depends on
@@ -212,23 +213,38 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    to P3; a pinned tool whose description drifted is downgraded. What broke was not the
    boundary but the assumption underneath it.
 
-   **F1 — content the classifier never sees (most serious).** Both `_as_text` in the
-   classifier and `message_text` in `attribution/ablation.py` keep only content parts whose
-   type is exactly `"text"`. A part typed `input_text` — the shape OpenAI's Responses API
-   uses — is therefore never a segment. This is worse than a misclassification, and the
-   distinction is the finding: a segment labelled P3 when it should be P0 is visible,
-   ablatable and arguable, whereas a byte the classifier never saw reaches the model,
-   influences the action, and **no counterfactual can test it**, because attribution can only
-   ablate what classification produced.
+   ~~**F1 — content the classifier never sees.**~~ **Found and fixed, same phase.** Both
+   `_as_text` in the classifier and `message_text` in `attribution/ablation.py` kept only
+   content parts whose type was exactly `"text"`. A part typed `input_text` — the shape
+   OpenAI's Responses API uses — was therefore never a segment. That is worse than a
+   misclassification, and the distinction is the finding: a segment labelled P3 when it
+   should be P0 is visible, ablatable and arguable, whereas a byte the classifier never saw
+   reaches the model, influences the action, and **no counterfactual can test it**, because
+   attribution can only ablate what classification produced.
 
-   It is also a *measurement* failure, not only a coverage one. Reconstruction flattens the
-   content list into a plain string, so the unseen part is present in the baseline the model
-   answered and absent from **every** ablated body. Each counterfactual then differs from the
-   baseline by more than the segment under test, and the missing part's causal effect is
-   folded silently into whatever else was being measured.
+   It was also a *measurement* failure, not only a coverage one. Reconstruction flattens the
+   content list into a plain string, so the unseen part sat in the baseline the model
+   answered and was absent from **every** ablated body. Each counterfactual then differed
+   from the baseline by more than the segment under test, and the missing part's causal
+   effect was folded silently into whatever else was being measured.
 
-   Stated as the property that was never enforced: **the classified text and the text the
-   model receives must be the same text.**
+   The property that was never enforced, now stated and tested: **the classified text and
+   the text the model receives must be the same text.**
+
+   **The root cause was duplication, and that is what the fix addresses.** The rule existed
+   twice, in two modules, and had to agree for the system to be sound; the two copies were
+   both wrong in the same way, which is exactly the failure duplication makes easy to miss.
+   The rule now lives once, in `aegis/provenance/content.py`, imported by both — and
+   `test_the_classified_text_is_the_text_ablation_removes` asserts *identity* rather than
+   behavioural equality, because behavioural equality only proves agreement on the cases
+   somebody thought to write down.
+
+   Extraction is now deliberately permissive: **any part carrying a `text` field
+   contributes.** Being too permissive over-restricts and is visible; being too strict
+   hides content from provenance entirely, which is the failure that was exploitable. Parts
+   carrying no text at all — images, audio — remain outside what a text classifier can
+   measure. `untyped_part_kinds` names them rather than dropping them silently, and that
+   limitation is real rather than solved.
 
    **F2 — P2 is granted on the strength of a name.** `_tool_response_segments` resolves trust
    from `message["name"]` alone. Nothing binds a tool response to a tool call that was

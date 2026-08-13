@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from aegis.common.hashing import hash_text
 from aegis.provenance.classes import DEFAULT_CLASS, ProvenanceClass
+from aegis.provenance.content import content_text
 from aegis.provenance.models import (
     ContextTrace,
     Locator,
@@ -346,16 +347,9 @@ class ContextClassifier:
         )
 
 
-def _as_text(content) -> str:
-    """Flatten OpenAI content, which may be a string or a list of typed parts."""
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict) and part.get("type") == "text"
-        )
-    return str(content)
+#: Kept as a name because the whole module reads in terms of it, but the rule now lives in
+#: ``provenance/content.py`` and is shared with ``attribution/ablation.py``. It used to be a
+#: second, independent copy, and the two silently disagreed: both kept only parts typed
+#: exactly ``"text"``, so a part typed ``input_text`` was classified by neither and ablatable
+#: by neither. See THREAT_MODEL section 6, finding F1.
+_as_text = content_text
