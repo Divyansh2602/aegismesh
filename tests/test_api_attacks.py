@@ -280,6 +280,60 @@ class TestTheAttackLabDrivesTheRealDefence:
         assert first.json()["mutation"] == second.json()["mutation"]
 
 
+class TestTheScoredSweepIsTheComparison:
+    async def test_the_sweep_scores_every_labelled_case(self, client):
+        session = await open_session(client)
+        response = await client.post("/v1/evaluation", headers={SESSION_HEADER: session})
+        assert response.status_code == 200
+        report = response.json()
+        assert report["cases"] == 7
+        assert len(report["outcomes"]) == 7
+
+    async def test_the_clean_cases_are_not_flagged(self, client):
+        """The rows that decide whether the control is deployable.
+
+        A detector that flags everything scores perfectly on the poisoned cases. These are
+        what make the poisoned results mean anything, so a regression here matters more
+        than a regression in recall.
+        """
+        session = await open_session(client)
+        report = (
+            await client.post("/v1/evaluation", headers={SESSION_HEADER: session})
+        ).json()
+        clean = [o for o in report["outcomes"] if not o["poisoned"]]
+        assert clean, "the case set must contain negatives"
+        assert all(not o["flagged"] for o in clean)
+        assert report["precision"] == 1.0
+
+    async def test_the_effective_injections_are_caught(self, client):
+        session = await open_session(client)
+        report = (
+            await client.post("/v1/evaluation", headers={SESSION_HEADER: session})
+        ).json()
+        effective = [o for o in report["outcomes"] if o["effective"]]
+        assert effective
+        assert all(o["flagged"] for o in effective)
+
+    async def test_the_sweep_bills_the_session(self, client):
+        """Seven attributions for one arrival is the most work a single permitted request
+        can buy, so it is the endpoint most worth billing correctly."""
+        session = await open_session(client)
+        headers = {SESSION_HEADER: session}
+        before = (await client.get("/v1/sessions/me", headers=headers)).json()
+        report = (await client.post("/v1/evaluation", headers=headers)).json()
+        after = (await client.get("/v1/sessions/me", headers=headers)).json()
+        spent = after["model_calls_spent"] - before["model_calls_spent"]
+        assert spent == report["model_calls"] > 0
+
+    async def test_the_sweep_is_rate_limited_more_tightly_than_a_run(self, client):
+        session = await open_session(client)
+        headers = {SESSION_HEADER: session}
+        seen = []
+        for _ in range(4):
+            seen.append((await client.post("/v1/evaluation", headers=headers)).status_code)
+        assert 429 in seen, "an endpoint costing seven attributions must be bounded"
+
+
 class TestReplayIsAuditedAndBilled:
     async def test_an_honest_warrant_replays_consistently(self, client):
         session = await open_session(client)

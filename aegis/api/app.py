@@ -47,6 +47,7 @@ from aegis.api.session import Session, SessionStore
 from aegis.attribution.client import InProcessMockClient
 from aegis.audit.replay import replay_attribution
 from aegis.common.ids import prefixed_id
+from aegis.evaluation.harness import FLAG_THRESHOLD, run_evaluation
 from aegis.log.log import Receipt, TransparencyLog, encode_hash
 from aegis.log.storage import SqliteLogStorage
 from aegis.warrant.keys import SigningKey
@@ -564,6 +565,53 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
             content=bundle[name],
             headers={"Content-Disposition": f'attachment; filename="{name}.json"'},
         )
+
+    @router.post("/v1/evaluation")
+    async def evaluation(
+        request: Request, x_aegis_session: str | None = Header(default=None)
+    ) -> dict:
+        """Score the whole labelled case set and return every case beside its outcome.
+
+        A single run proves nothing on its own. A detector that flags everything scores
+        perfectly on the four poisoned cases and is worthless; the three clean ones are
+        what make the poisoned ones mean something. This endpoint is the comparison —
+        precision and recall over the same cases, with the clean rows visible.
+
+        Served as one request rather than seven runs driven from the browser, and that is
+        a control decision rather than a convenience: the arrival limiter allows six runs
+        a minute, so a client looping over seven scenarios would be refused on the last
+        one. One arrival, one rate-limit slot, and the cost billed to the session.
+
+        This calls ``run_evaluation`` — the same function ``demo/phase2_eval.py`` calls —
+        so the grid on the website and the numbers in ``results/phase2_evaluation.json``
+        cannot drift apart.
+        """
+        session = _require_session(request, x_aegis_session)
+        config: ApiSettings = request.app.state.settings
+        request.app.state.arrivals.check(
+            f"eval:{client_key(request, config)}", config.evaluations_per_minute
+        )
+        check_session_budget(session.model_calls_spent, config)
+
+        async with request.app.state.attribution_slots:
+            report = await run_evaluation()
+
+        spent = sum(outcome.model_calls for outcome in report.outcomes)
+        session.model_calls_spent += spent
+
+        return {
+            **report.as_dict(),
+            "model": runner.MODEL_LABEL,
+            "model_calls": spent,
+            "flag_threshold": FLAG_THRESHOLD,
+            "note": (
+                "Seven hand-built cases against a deterministic mock. They prove the engine "
+                "is wired correctly and catch regressions in seconds; they are not a "
+                "generalization claim. The clean cases are the ones that decide whether a "
+                "control is deployable — an injection that failed is an easy negative, "
+                "ordinary work with no adversary is the hard one."
+            ),
+        }
 
     @router.get("/v1/log")
     async def log_state(request: Request) -> dict:

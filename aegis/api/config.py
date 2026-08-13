@@ -71,6 +71,14 @@ class ApiSettings(BaseSettings):
 
     runs_per_minute: int = 6
     sessions_per_minute: int = 10
+
+    evaluations_per_minute: int = 2
+    """Scored sweeps of the whole labelled case set, per client.
+
+    Tighter than ``runs_per_minute`` because one call is seven attributions rather than
+    one — roughly fifty model calls for a single arrival. Rate limits bound *when*, and
+    this is the endpoint where a single permitted arrival buys the most work.
+    """
     max_concurrent_attributions: int = 4
     """Attributions allowed to run at once, process-wide.
 

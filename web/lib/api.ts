@@ -101,6 +101,99 @@ export interface Scenario {
   labelled?: boolean;
 }
 
+export interface CaseOutcome {
+  name: string;
+  poisoned: boolean;
+  effective: boolean;
+  flagged: boolean;
+  correct: boolean;
+  localized: boolean | null;
+  untrusted_share: number;
+  confidence: number;
+  model_calls: number;
+  dominant_class: string | null;
+  destination_status: ArgumentStatus | "unknown";
+  tags: string[];
+}
+
+export interface EvaluationReport {
+  cases: number;
+  ineffective_injections: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  localization_rate: number;
+  mean_model_calls: number;
+  max_model_calls: number;
+  outcomes: CaseOutcome[];
+  model: string;
+  model_calls: number;
+  flag_threshold: number;
+  note: string;
+}
+
+export interface AttackSpec {
+  name: string;
+  title: string;
+  what_it_does: string;
+  expectation: string;
+  control: string;
+}
+
+export interface AttackResult extends AttackSpec {
+  mutation: Record<string, unknown>;
+  defended: boolean;
+  detected_by: string;
+  note: string;
+  enforcement?: {
+    verdict: "PERMIT" | "REJECT";
+    issuer_decision: string;
+    failed_steps: number[];
+    reasons: string[];
+    policy_reasons: string[];
+  };
+  witness?: { fork_detected: boolean; reason: string; serves_a_root_now: boolean };
+}
+
+export interface ReplayFinding {
+  check: string;
+  verdict: "consistent" | "contradicted" | "inconclusive";
+  detail: string;
+  signed: string | null;
+  replayed: string | null;
+}
+
+export interface ReplayReport {
+  run_id: string;
+  model: string;
+  model_calls: number;
+  verdict: "consistent" | "contradicted" | "inconclusive";
+  checks: number;
+  contradictions: number;
+  findings: ReplayFinding[];
+  note: string;
+}
+
+export interface ArtifactBundle {
+  warrant: Record<string, unknown>;
+  receipt: { leaf_index: number; tree_size: number; root_hash: string; inclusion_proof: string[] };
+  trust_anchors: {
+    issuer_verification_method: string;
+    issuer_public_key_multibase: string;
+    log_id: string;
+    log_public_key_multibase: string;
+    witnessed_root: string;
+    witnessed_tree_size: number;
+  };
+}
+
+export interface WitnessState {
+  log_id: string;
+  tree_size: number;
+  root: string | null;
+  note: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -169,7 +262,54 @@ export const api = {
     request<T>(`/v1/runs/${runId}/${stage}`, { session }),
 
   log: () => request<{ tree_size: number; durable: boolean }>("/v1/log"),
+
+  /** Scores the whole labelled case set in one arrival. See the endpoint for why. */
+  evaluation: (session: string) =>
+    request<EvaluationReport>("/v1/evaluation", { method: "POST", session }),
+
+  attacks: (session: string, runId: string) =>
+    request<{ attacks: AttackSpec[]; note: string }>(`/v1/runs/${runId}/attacks`, { session }),
+
+  runAttack: (session: string, runId: string, name: string) =>
+    request<AttackResult>(`/v1/runs/${runId}/attacks/${name}`, { method: "POST", session }),
+
+  replay: (session: string, runId: string) =>
+    request<ReplayReport>(`/v1/runs/${runId}/replay`, { method: "POST", session }),
+
+  artifacts: (session: string, runId: string) =>
+    request<ArtifactBundle>(`/v1/runs/${runId}/artifacts`, { session }),
+
+  witness: (session: string) => request<WitnessState>("/v1/witness", { session }),
 };
+
+/**
+ * Fetch one auditor file and hand it to the browser as a download.
+ *
+ * Done through fetch rather than an `<a download href>` because the endpoint needs the
+ * session header, which a plain anchor cannot send — the same constraint that rules out
+ * EventSource for the event stream.
+ */
+export async function downloadArtifact(
+  session: string,
+  runId: string,
+  name: "warrant" | "receipt" | "trust_anchors",
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/v1/runs/${runId}/artifacts/${name}.json`, {
+    headers: { [SESSION_HEADER]: session },
+  });
+  if (!response.ok) {
+    throw new ApiError(response.status, null, `could not download ${name}.json`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${name}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 /**
  * Read a run's event stream.

@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **393 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **398 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -94,7 +94,7 @@ nothing.
 | 5a — Public API, endpoints | **Done** | `aegis/api/`, `aegis/log/storage.py`, `tests/test_api.py`, `tests/test_log_storage.py` |
 | 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
 | 6a — CORS, attack lab, replay | **Done** | `aegis/api/attacks.py`, `Run.evidence`, CORS, `POST /v1/runs/{id}/replay`, `tests/test_api_attacks.py` |
-| 6b — Console, screens 1–3 | **Partial** | `web/` — Next 16 + TS + Tailwind v4. Runner, live counterfactuals, three-state evidence, verdict, classified context. Screens 4–6 pending |
+| 6b — Console, all six screens | **Done** | `web/` — Next 16 + TS + Tailwind v4. Runner, stepper, live counterfactuals, three-state evidence, verdict, context, attack lab, auditor view, scored case grid |
 | 7 — Ship it | Pending | containers, CI, hosting, the public launch |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
@@ -797,6 +797,46 @@ than stacking as they would on a real phone.
 
 **Tailwind resolves class names statically**, so a constructed `text-${tone}` never gets
 generated. Verdict and status colours are inline styles off the CSS custom properties.
+
+### The last three blocks, and the endpoint one of them needed
+
+**`POST /v1/evaluation`** scores the whole labelled case set in a single request and returns
+every case beside its outcome. It calls `run_evaluation` — the same function
+`demo/phase2_eval.py` calls — so the grid on the site and `results/phase2_evaluation.json`
+cannot drift apart. Verified live: precision 1.000, recall 1.000, f1 1.000, localization
+1.000, mean 6.86 calls, 48 spent across seven cases.
+
+**Why an endpoint rather than seven runs from the browser.** The arrival limiter allows six
+runs a minute, so a client looping over seven scenarios is refused on the last one — the
+control working correctly and ruining the demo. One arrival, one slot, cost billed to the
+session. It has its own tighter limit (`evaluations_per_minute = 2`) because one call is
+seven attributions: rate limits bound *when*, and this is the endpoint where a single
+permitted arrival buys the most work.
+
+**Why the grid matters more than any single run.** A detector that flags everything scores
+perfectly on the four poisoned cases and is worthless. The three clean rows are what make
+the poisoned ones mean anything, so they are tinted as a group and never hidden behind a
+summary number. This is the block that turns the site from a demo into evidence.
+
+- `web/components/AttackLab.tsx` — the four Phase 3 attacks as buttons against the run you
+  just produced. `defended` is rendered as a **measurement**, and an attack that wins is
+  styled as prominently as one that loses; a panel that could only report success would be
+  an advertisement.
+- `web/components/AuditorView.tsx` — the three artifact downloads with the verifier command,
+  the witness state, the inclusion proof, and replay. Downloads go through `fetch` + a blob
+  rather than an `<a download href>`, because the endpoint needs the session header and a
+  plain anchor cannot send one — the same constraint that rules out `EventSource`.
+- Replay verified live from the browser: **consistent, 13 checks, 0 contradictions**.
+
+**One UX defect found by driving it.** The run button was enabled during the round trip that
+mints the session, and `run()` returns silently when `session` is null — so an early click
+did nothing and said nothing. It now shows "Connecting" and is disabled until the session
+exists. Worth remembering as a shape: a guard clause that protects correctness while leaving
+the control live is a control that lies about being ready.
+
+**Sessions are minted once per page load**, not per action, so the scored sweep, the run, the
+attacks and the audit all bill against one budget. A visitor who could reset their budget by
+re-rendering a component would not be bounded by it.
 
 ---
 

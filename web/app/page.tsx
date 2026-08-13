@@ -13,7 +13,10 @@ import {
   type Scenario,
 } from "@/lib/api";
 import { AblationFeed } from "@/components/AblationFeed";
+import { AttackLab } from "@/components/AttackLab";
+import { AuditorView } from "@/components/AuditorView";
 import { Button } from "@/components/Button";
+import { ScenarioGrid } from "@/components/ScenarioGrid";
 import { ContextTrace } from "@/components/ContextTrace";
 import { EvidencePanel } from "@/components/EvidencePanel";
 import { Reading } from "@/components/Reading";
@@ -37,6 +40,13 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [control, setControl] = useState<string | null>(null);
 
+  // One session per page load, which is exactly what one visitor is. Held here rather
+  // than minted per action so the scored sweep, the run, the attacks and the audit all
+  // bill against the same budget — a visitor who could reset their budget by reloading a
+  // component would not be bounded by it.
+  const [session, setSession] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+
   const abort = useRef<AbortController | null>(null);
   const runSection = useRef<HTMLElement>(null);
 
@@ -49,6 +59,8 @@ export default function Home() {
         setScenarios(cat.scenarios);
         setModel(cat.model);
         setTreeSize(health.log_tree_size);
+        const opened = await api.createSession();
+        if (!cancelled) setSession(opened.session_id);
       } catch {
         if (!cancelled) setOffline("uvicorn aegis.api.app:app --port 8000");
       }
@@ -61,6 +73,7 @@ export default function Home() {
   useEffect(() => () => abort.current?.abort(), []);
 
   const run = useCallback(async () => {
+    if (!session) return;
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
@@ -70,12 +83,13 @@ export default function Home() {
     setContext(null);
     setError(null);
     setControl(null);
+    setRunId(null);
 
     try {
-      const session = await api.createSession();
-      const started = await api.startRun(session.session_id, chosen);
+      const started = await api.startRun(session, chosen);
+      setRunId(started.run_id);
 
-      for await (const event of streamEvents(session.session_id, started.run_id, {
+      for await (const event of streamEvents(session, started.run_id, {
         signal: controller.signal,
       })) {
         setEvents((previous) => [...previous, event]);
@@ -88,7 +102,7 @@ export default function Home() {
 
       // Segment text comes from the stage endpoint, not the stream: events carry hashes
       // only, deliberately.
-      const view = await api.stage<ContextView>(session.session_id, started.run_id, "context");
+      const view = await api.stage<ContextView>(session, started.run_id, "context");
       if (!controller.signal.aborted) setContext(view);
       const log = await api.log();
       if (!controller.signal.aborted) setTreeSize(log.tree_size);
@@ -102,7 +116,7 @@ export default function Home() {
         setError(caught instanceof Error ? caught.message : String(caught));
       }
     }
-  }, [chosen]);
+  }, [chosen, session]);
 
   const ablations = events
     .filter((e) => e.type === "ablation")
@@ -216,11 +230,21 @@ export default function Home() {
                 )}
               </div>
 
-              <Button onClick={run} disabled={phase === "running" || !!offline}>
-                {phase === "running" && (
+              {/* Disabled until the session exists. Without `!session` the button is
+                  live during the round trip that mints it, and clicking then returns
+                  silently — a control that does nothing and says nothing. */}
+              <Button
+                onClick={run}
+                disabled={phase === "running" || !!offline || !session}
+              >
+                {(phase === "running" || (!session && !offline)) && (
                   <span className="breathe h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
                 )}
-                {phase === "running" ? "Running" : "Run the pipeline"}
+                {phase === "running"
+                  ? "Running"
+                  : !session && !offline
+                    ? "Connecting"
+                    : "Run the pipeline"}
               </Button>
             </div>
 
@@ -308,6 +332,28 @@ export default function Home() {
               <ContextTrace context={context} />
             </Reveal>
           )}
+
+          {/* Both require a warrant: the attacks mutate one, and the auditor bundle is
+              derived from its receipt. A run that halted before issuing has neither, and
+              these sections stay absent rather than rendering empty shells. */}
+          {session && runId && issued && (
+            <Reveal>
+              <SectionRule>Attack the defence</SectionRule>
+              <AttackLab session={session} runId={runId} />
+            </Reveal>
+          )}
+
+          {session && runId && issued && (
+            <Reveal>
+              <SectionRule>Verify it yourself</SectionRule>
+              <AuditorView session={session} runId={runId} />
+            </Reveal>
+          )}
+
+          <Reveal>
+            <SectionRule>The whole case set</SectionRule>
+            <ScenarioGrid session={session} />
+          </Reveal>
         </section>
       </main>
 

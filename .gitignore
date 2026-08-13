@@ -28,6 +28,15 @@ id_rsa*
 id_ed25519*
 *.log
 
+# Local transparency-log databases. The log's whole value is being append-only over time,
+# so a deployment points AEGIS_API_LOG_DATABASE at a volume that survives restarts --
+# but a checked-in copy would be a dead snapshot of somebody's laptop, and every root in
+# it was signed by the published demo key. Keep the property, not the file.
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
 # Local agent/editor state
 .remember/
 .claude/
