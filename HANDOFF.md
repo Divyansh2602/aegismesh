@@ -889,13 +889,39 @@ secret *and* unchanging, which is the actual requirement, because a log whose si
 changes is a log whose entire signed history stops verifying. The service logs a warning if a
 durable log is running on the published default.
 
+### Keeping it awake, and what that workflow is really for
+
+`.github/workflows/keep-warm.yml` pings `/health` every ten minutes. Render's free instances
+spin down after **15 minutes** idle and take 30–60s to wake (confirmed 2026-08-13), so ten
+minutes sits comfortably inside that window. **Paid instances do not sleep**, so on the
+`starter` plan the Blueprint specifies, this is not needed for warmth.
+
+It still earns its place, because of the second thing it does: every ping records the log's
+tree size and compares it to the previous one, and **fails if the log shrank**. An
+append-only log cannot get shorter, and this catches that from *outside* the operator's own
+infrastructure — which is exactly what a free instance with no persistent disk will trip.
+
+Stated precisely so it is not oversold: this is a **weak external witness**. It compares
+counts, not roots, so it cannot detect a fork or a rewrite that preserves length. It is not a
+substitute for `aegis/log/witness.py`, and nothing in the trust argument should lean on it.
+
+Two GitHub caveats worth knowing rather than discovering: scheduled workflows are
+**best-effort** and are frequently delayed under load, and GitHub disables schedules on
+repositories with no activity for 60 days. If the service must never sleep, the paid instance
+is the answer and this workflow is the monitor. It is guarded by
+`if: vars.AEGIS_API_URL != ''` so it skips cleanly before the first deploy — a monitor that
+fails every ten minutes until you deploy trains you to ignore its notifications, which is
+worse than having none.
+
 ### The remaining step
 
 1. Render → New Blueprint → point at this repo. Confirm the paid instance and the disk.
 2. Vercel → import, root directory `web`, set `NEXT_PUBLIC_AEGIS_API` to the Render URL.
 3. Set `AEGIS_API_CORS_ORIGINS` on Render to the Vercel origin. **Without this every screen
    is blank** — the console talks to the API from the browser and fails at the preflight.
-4. Put the URL at the top of the README, and flip the repo public.
+4. Set the GitHub repository variable `AEGIS_API_URL` to the Render URL, which enables the
+   keep-warm workflow (Settings → Secrets and variables → Actions → Variables).
+5. Put the URL at the top of the README, and flip the repo public.
 
 ---
 

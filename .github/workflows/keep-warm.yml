@@ -1,0 +1,88 @@
+# Keeps the API awake, and records what it says while doing it.
+#
+# Render's free web services spin down after 15 minutes of inactivity and take 30-60s to
+# come back, so a visitor arriving cold sees a blank page for a minute. Ten minutes is
+# comfortably inside that window.
+#
+# **On a paid instance this is not needed for warmth** -- paid services do not sleep. It
+# still earns its place there, because of the second thing it does.
+#
+# ## The second thing it does
+#
+# Every ping records the log's tree size and compares it to the previous ping. An
+# append-only log must never shrink, and this is the one check that can catch it happening
+# from *outside* the operator's own infrastructure. That is a weak external witness: it
+# cannot prove the log is honest, and it is not a substitute for the witness in
+# `aegis/log/witness.py`, which compares roots rather than counts. What it does give is a
+# third party's timestamped record that the tree grew and never went backwards -- and on a
+# free instance with no persistent disk, a reset is exactly what it will catch.
+name: Keep warm
+
+on:
+  schedule:
+    # Every ten minutes. GitHub's scheduler is best-effort: runs are frequently delayed
+    # under load and are not guaranteed to fire on time, so treat this as "usually inside
+    # fifteen minutes" rather than as a cron guarantee. If the service must never sleep,
+    # the paid instance is the answer and this workflow is the monitor.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: ping /health
+    runs-on: ubuntu-latest
+    # Skips cleanly until the service exists. Without this the workflow fails every ten
+    # minutes before the first deploy and trains you to ignore its notifications, which is
+    # the failure mode that makes monitoring worse than none.
+    if: vars.AEGIS_API_URL != ''
+
+    steps:
+      - name: Restore the last observed tree size
+        uses: actions/cache@v4
+        with:
+          path: .keep-warm
+          # A unique key with a shared restore prefix: each run saves its own entry and
+          # restores the most recent previous one, which is how you carry rolling state
+          # through a cache that is otherwise immutable.
+          key: keep-warm-${{ github.run_id }}
+          restore-keys: keep-warm-
+
+      - name: Ping, and check the log did not go backwards
+        env:
+          URL: ${{ vars.AEGIS_API_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p .keep-warm
+
+          # Retries because a cold start can take a minute: the first request is what wakes
+          # the instance, and failing on it would report an outage we ourselves caused.
+          body=$(curl -fsS --max-time 90 --retry 5 --retry-delay 15 --retry-all-errors \
+                   "${URL%/}/health")
+          echo "$body"
+
+          size=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["log_tree_size"])')
+          durable=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin)["log_durable"])')
+
+          previous=$(cat .keep-warm/tree_size 2>/dev/null || echo "")
+          echo "tree_size=$size durable=$durable previous=${previous:-none}" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -n "$previous" ] && [ "$size" -lt "$previous" ]; then
+            echo "::error::The transparency log shrank: $previous -> $size."
+            echo "An append-only log cannot get shorter. On a free Render instance this is"
+            echo "the ephemeral filesystem resetting -- attach a persistent disk, or drop"
+            echo "AEGIS_API_LOG_DATABASE so the service stops claiming to be durable."
+            exit 1
+          fi
+
+          if [ "$durable" != "True" ]; then
+            echo "::warning::log_durable is $durable — this log does not survive a restart."
+          fi
+
+          printf '%s' "$size" > .keep-warm/tree_size

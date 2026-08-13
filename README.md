@@ -240,6 +240,16 @@ URL. Then set `AEGIS_API_CORS_ORIGINS` on the API to the Vercel origin: the cons
 the API from the browser, so a missing origin fails at the preflight and every screen is
 blank.
 
+**Keeping it awake.** Render's free instances spin down after 15 minutes idle and take
+30–60s to wake, so a visitor arriving cold sees nothing for a minute.
+[`.github/workflows/keep-warm.yml`](.github/workflows/keep-warm.yml) pings `/health` every
+ten minutes; set the repository variable `AEGIS_API_URL` to enable it, and it skips cleanly
+until you do. Paid instances do not sleep, so there it is a monitor rather than a
+life-support machine — it records the log's tree size on every ping and **fails if the log
+ever shrinks**, which is an append-only violation observed from outside the operator's own
+infrastructure. That is a weak external witness, not a substitute for the real one in
+`aegis/log/witness.py`, which compares roots rather than counts.
+
 `AEGIS_API_TRUST_FORWARDED_FOR=true` is set in the Blueprint because Render terminates TLS at
 its proxy. Without it every visitor shares one rate-limit bucket and the first busy minute
 locks everyone out. It stays off by default everywhere else, because honouring
