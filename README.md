@@ -215,7 +215,9 @@ poisoned ones mean anything.
 
 ## Deploying it
 
-CI runs `ruff`, the test suite, all four demos and the standalone verifier on every push, on
+**Full runbook with verification at each step: [`docs/DEPLOY.md`](docs/DEPLOY.md).**
+
+CI runs `ruff`, the test suite, all five demos and the standalone verifier on every push, on
 Python 3.11 and 3.13, plus lint and build for the console.
 
 **API — Render.** [`render.yaml`](render.yaml) is a Blueprint: point Render at this repo and

@@ -14,6 +14,8 @@ describe the system; this one describes the *project*.
 
 1. **This file** — status, the eleven design decisions, the product target Phases 5–8 build
    toward, and the conventions that must not regress
+   · [`docs/DEPLOY.md`](docs/DEPLOY.md) is the deploy runbook, and is the only work left
+   that cannot be done from inside the repo
 2. [`README.md`](README.md) — the pitch and the honest novelty positioning
 3. [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — adversaries, controls, twelve residual
    risks, OWASP + EU AI Act mapping
@@ -915,13 +917,32 @@ worse than having none.
 
 ### The remaining step
 
-1. Render → New Blueprint → point at this repo. Confirm the paid instance and the disk.
-2. Vercel → import, root directory `web`, set `NEXT_PUBLIC_AEGIS_API` to the Render URL.
-3. Set `AEGIS_API_CORS_ORIGINS` on Render to the Vercel origin. **Without this every screen
-   is blank** — the console talks to the API from the browser and fails at the preflight.
-4. Set the GitHub repository variable `AEGIS_API_URL` to the Render URL, which enables the
-   keep-warm workflow (Settings → Secrets and variables → Actions → Variables).
-5. Put the URL at the top of the README, and flip the repo public.
+**Full runbook: [`docs/DEPLOY.md`](docs/DEPLOY.md)** — every click, the verification command
+after each step, and a table of the six ways this goes wrong. Summarised here so the handoff
+stays self-contained:
+
+1. **Render → New Blueprint** → point at this repo. Confirm the Starter plan and the 1 GB
+   disk at `/data`. Verify `/health` reports `log_durable: true` before continuing; if it
+   does not, the disk did not attach and every later step assumes it did.
+2. **Vercel → import**, **root directory `web`** (the build fails without it), set
+   `NEXT_PUBLIC_AEGIS_API` to the Render URL.
+3. **Set `AEGIS_API_CORS_ORIGINS`** on Render to the Vercel origin, exact, no trailing
+   slash. **Without this every screen is blank** — the console talks to the API from the
+   browser and fails at the preflight, which reads as a broken site rather than a missing
+   variable.
+4. **Set the GitHub repository variable `AEGIS_API_URL`** to the Render URL (Settings →
+   Secrets and variables → Actions → Variables), then run the Keep warm workflow manually
+   once. It skips cleanly until this exists, by design.
+5. **Download the three artifacts from the deployed site and run
+   `tools/verify_warrant.py` on them locally.** 6/6 against production is the entire pitch,
+   and it should be confirmed before anyone else sees it.
+6. Put the URL at the top of the README, and flip the repo public.
+
+**The cost decision, stated once more because it is the only one with a wrong answer that
+looks right:** if the paid instance and disk are skipped, delete `AEGIS_API_LOG_DATABASE`
+*together with* the `disk:` block. Setting the path with no disk behind it makes `/health`
+report `log_durable: true` while the history silently restarts — the site would be claiming
+the one property it no longer has.
 
 ---
 
