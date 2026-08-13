@@ -753,18 +753,50 @@ half of 4 are up; the attack lab and the auditor view are not.
   determined; `unknown` is hatched with "no comparable run exists". Three forms, not three
   shades — a bar renders the last two identically, which is the flattening that made an
   earlier version of this system refuse a legitimate payment.
-- Premium dark treatment throughout: Bebas Neue display, DM Sans body, JetBrains Mono for
-  hashes, film grain, custom cursor, magnetic primary button. Cursor and magnetism are both
-  gated on `(pointer: fine)` and off under `prefers-reduced-motion`; the grain layer is
-  `pointer-events-none`, because an overlay silently eating clicks is the classic version of
-  that bug.
+- `web/components/Stepper.tsx` — the six pipeline stages advancing live. This is the piece
+  that makes the system legible to somebody who will never read the JSON: the panels are the
+  evidence, this is the sentence the evidence is arranged into. A stage is `done` because its
+  own event arrived, never because a later one did, so a halted run leaves the rest visibly
+  unreached instead of quietly filled in.
+- `web/components/Reading.tsx` — the measurement in one plain sentence ("human mandate set
+  amount · untrusted external set destination_account"), every clause **derived from the
+  per-argument distribution**, never written in advance. Prose is the easiest place on the
+  page to smuggle in a claim nobody measured, so it is generated from the same data the bars
+  are.
 
-**Not yet verified: mobile.** The desktop path was driven end to end in Chrome. A resize to
-390px through the automation tooling did not produce a trustworthy viewport, so responsive
-is **unconfirmed** rather than working — check it before believing it.
+### The visual direction, and why it changed
+
+The first pass was a dark theme with oversized Bebas Neue caps, a neon accent, film grain, a
+custom cursor and a magnetic button. Divyansh's verdict was that it read as a vibe-coded
+site, and he was right: that combination *is* the generic AI-landing-page signature, and on a
+project whose entire argument is "do not trust things that merely look convincing" it works
+against the thesis.
+
+Rebuilt as an instrument rather than a landing page. **Warm paper (`#fbfaf8`), ink, one deep
+blue accent, print-derived provenance colours** muted enough to sit next to body text at
+11px. Source Serif 4 for display at restrained sizes — authority from the face and the
+spacing, not from setting it 9rem tall — Inter for UI, JetBrains Mono with `tnum` for hashes
+so columns of numbers line up and can be compared. Hierarchy comes from small-caps labels and
+hairline rules. The cursor, the grain and the magnetic button are **deleted**; the only motion
+left is a short opacity/transform rise on scroll and a 220ms row-in on streamed rows, both
+compositor-only and both disabled under `prefers-reduced-motion`.
+
+Enterprise details that were missing and now are not: sticky top bar carrying live log size
+and API reachability, copy-to-clipboard on every hash and warrant id (an auditor's whole job
+is comparing one against another, so truncating without offering the full value looks precise
+while being useless), a skip link, `aria-live` narration of run progress, `role="log"` on the
+stream, and correct pluralisation.
+
+**Mobile is verified**, by measurement rather than by screenshot. The automation tooling's
+window resize silently does not apply — it reports success while `window.innerWidth` stays at
+the desktop value, which is why an earlier check was recorded as inconclusive. Instead the
+page shells are forced to 390px and every element measured for overflow: **zero offenders,
+no document overflow**. That is the stricter test, because viewport media queries stay at
+desktop, so the two-column grids and three-column tables get crushed into phone width rather
+than stacking as they would on a real phone.
 
 **Tailwind resolves class names statically**, so a constructed `text-${tone}` never gets
-generated. Verdict colours are inline styles off the CSS custom properties for that reason.
+generated. Verdict and status colours are inline styles off the CSS custom properties.
 
 ---
 

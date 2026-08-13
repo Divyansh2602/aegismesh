@@ -1,44 +1,52 @@
 @import "tailwindcss";
 
 /**
- * A single committed dark palette. This is an evidence console, not a page that should
- * follow the OS into a light theme halfway through an audit -- so the colours are stated
- * once and there is no prefers-color-scheme block.
+ * Warm paper, ink, and one restrained accent.
+ *
+ * The palette is print-derived on purpose. This screen is an evidence exhibit — the
+ * reader is comparing hashes, weighing a distribution, deciding whether to believe a
+ * claim — and saturated colour on a black field fights that. Everything semantic here is
+ * muted enough to sit next to body text without shouting, and colour is only ever used to
+ * mean something.
  */
 :root {
-  --ink: #08090b;
-  --ink-raised: #0e1014;
-  --ink-panel: #12151a;
-  --line: #1f242c;
-  --line-bright: #2c333d;
-  --text: #e9e7e4;
-  --text-dim: #9aa1ac;
-  --text-faint: #666e7a;
+  --paper: #fbfaf8;
+  --surface: #ffffff;
+  --sunken: #f5f3ef;
+  --line: #e6e2da;
+  --line-strong: #d3cdc2;
 
-  /* One bold accent, used for the brand and for nothing semantic. */
-  --accent: #f5b544;
+  --ink: #1a1917;
+  --ink-soft: #56534d;
+  --ink-faint: #8b867e;
 
-  /* Provenance classes. Trust runs cool-to-warm; P3 is the one that means danger. */
-  --p0: #34d399;
-  --p1: #38bdf8;
-  --p2: #a78bfa;
-  --p3: #fb7185;
-  --p4: #fbbf24;
+  --accent: #1d3f5e;
+  --accent-soft: #eaeef3;
 
-  --permit: #34d399;
-  --reject: #fb7185;
+  /* Provenance. Print inks, not neon: distinguishable side by side and legible at 11px. */
+  --p0: #2e6b4f;
+  --p1: #2c5a87;
+  --p2: #5b4b8a;
+  --p3: #a3352a;
+  --p4: #8a6116;
+
+  --permit: #2e6b4f;
+  --reject: #a3352a;
+
+  --shadow-card: 0 1px 2px rgba(26, 25, 23, 0.04), 0 8px 24px -12px rgba(26, 25, 23, 0.08);
 }
 
 @theme inline {
-  --color-ink: var(--ink);
-  --color-ink-raised: var(--ink-raised);
-  --color-ink-panel: var(--ink-panel);
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
   --color-line: var(--line);
-  --color-line-bright: var(--line-bright);
-  --color-text: var(--text);
-  --color-text-dim: var(--text-dim);
-  --color-text-faint: var(--text-faint);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --color-p0: var(--p0);
   --color-p1: var(--p1);
   --color-p2: var(--p2);
@@ -47,120 +55,177 @@
   --color-permit: var(--permit);
   --color-reject: var(--reject);
 
-  --font-display: var(--font-bebas);
-  --font-sans: var(--font-dm-sans);
+  --font-serif: var(--font-source-serif);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-mono-code);
 }
 
 html {
-  background: var(--ink);
+  background: var(--paper);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--ink);
-  color: var(--text);
-  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-/* Display type. Bebas is all-caps by design; the tracking keeps it from reading as a
-   compressed headline squeeze. */
-.display {
-  font-family: var(--font-bebas), Impact, sans-serif;
-  letter-spacing: 0.02em;
-  line-height: 0.92;
+/**
+ * A drafting grid, barely there. It gives the page a surface to sit on rather than
+ * floating on flat white, and it fades out before it can compete with content. Fixed and
+ * behind everything, so it costs one composited layer and never repaints on scroll.
+ */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.45;
+  -webkit-mask-image: radial-gradient(ellipse 90% 55% at 50% 0%, #000 20%, transparent 78%);
+  mask-image: radial-gradient(ellipse 90% 55% at 50% 0%, #000 20%, transparent 78%);
+}
+
+.serif {
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-weight: 400;
+  letter-spacing: -0.012em;
 }
 
 .mono {
   font-family: var(--font-mono-code), ui-monospace, monospace;
   font-variant-ligatures: none;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Small-caps section labels. Does the work an oversized heading was doing, without
+   shouting — hierarchy from weight and spacing rather than from scale. */
+.label {
+  font-family: var(--font-inter), sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+/* Numbers in tables must line up column-wise or they cannot be compared at a glance. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 /**
- * Film grain. Fixed and pointer-events-none so it never intercepts a click -- a preloader
- * or overlay silently eating clicks is the classic version of this bug.
+ * Entrance motion. Short, small, and opacity+transform only so it stays on the compositor.
+ * Armed by script, so a visitor with JS disabled or a failed hydration reads the page
+ * instead of a blank column.
  */
-.noise::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  pointer-events: none;
-  opacity: 0.028;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-/* Scroll reveal. Starts visible and is *hidden* by script, so a visitor with JS disabled
-   or a hydration failure reads the page rather than a blank column. */
-.reveal {
+.rise {
   opacity: 1;
   transform: none;
   transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    opacity 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.reveal[data-armed="true"] {
+.rise[data-armed="true"] {
   opacity: 0;
-  transform: translateY(18px);
+  transform: translateY(10px);
 }
-.reveal[data-armed="true"][data-shown="true"] {
+.rise[data-armed="true"][data-shown="true"] {
   opacity: 1;
   transform: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .reveal,
-  .reveal[data-armed="true"] {
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
+.row-in {
+  animation: row-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-@keyframes pulse-soft {
+@keyframes breathe {
   0%,
   100% {
     opacity: 1;
   }
   50% {
-    opacity: 0.45;
+    opacity: 0.3;
   }
 }
-.live-dot {
-  animation: pulse-soft 1.4s ease-in-out infinite;
+.breathe {
+  animation: breathe 1.6s ease-in-out infinite;
 }
 
-/* Hatching for the `unknown` argument state. Deliberately not a bar: a bar at 0% and a
-   bar at 100% are the same visual language, and design decision 6 is the finding that
-   these are different kinds of answer rather than different amounts of one. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .rise,
+  .rise[data-armed="true"] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Hatching for the `unknown` argument state. Deliberately not a bar: a bar at 0% and a bar
+   at 100% are the same visual language, and design decision 6 is the finding that these
+   are different kinds of answer rather than different amounts of one. */
 .hatched {
   background-image: repeating-linear-gradient(
     -45deg,
-    var(--line-bright) 0px,
-    var(--line-bright) 1px,
+    var(--line-strong) 0px,
+    var(--line-strong) 1px,
     transparent 1px,
-    transparent 7px
+    transparent 6px
   );
 }
 
 ::selection {
-  background: var(--accent);
+  background: #d8e3ec;
   color: var(--ink);
 }
 
 *:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--ink);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--line-bright);
-  border-radius: 6px;
+  background: var(--line-strong);
+  border: 3px solid var(--paper);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-faint);
 }

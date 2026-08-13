@@ -1,6 +1,7 @@
 "use client";
 
 import type { DecisionEventData } from "@/lib/api";
+import { Hash } from "@/components/Hash";
 
 /**
  * What the payment API decided, and — shown separately — what the issuer claimed.
@@ -13,54 +14,43 @@ export function Verdict({
   decision,
   issued,
   logged,
-  className = "",
 }: {
   decision: DecisionEventData;
   issued?: { warrant_id: string; issuer_decision: string };
   logged?: { leaf_index: number; tree_size: number; root_hash: string };
-  className?: string;
 }) {
   const admitted = decision.verdict === "PERMIT";
+  const colour = admitted ? "var(--permit)" : "var(--reject)";
 
   return (
-    <div
-      className={`overflow-hidden rounded-xl border bg-ink-raised ${className}`}
-      style={{ borderColor: admitted ? "var(--permit)" : "var(--reject)" }}
-    >
-      <div
-        className="flex flex-wrap items-center justify-between gap-4 px-6 py-5"
-        style={{ background: admitted ? "rgba(52,211,153,0.06)" : "rgba(251,113,133,0.06)" }}
-      >
+    <section className="card overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-6 border-b border-line p-6">
         <div>
-          <p className="mono text-[11px] uppercase tracking-[0.18em] text-text-faint">
-            The payment API decides
-          </p>
-          {/* Written out rather than interpolated: Tailwind resolves class names
-              statically, so a constructed `text-${tone}` is never generated. */}
-          <p
-            className="display mt-1 text-5xl uppercase"
-            style={{ color: admitted ? "var(--permit)" : "var(--reject)" }}
-          >
-            {decision.verdict}
+          <p className="label">The payment API decides</p>
+          {/* Colour is applied inline from the CSS custom property: Tailwind resolves class
+              names statically, so a constructed `text-${tone}` is never generated. */}
+          <p className="serif mt-1.5 text-4xl leading-none" style={{ color: colour }}>
+            {admitted ? "Permit" : "Reject"}
           </p>
         </div>
         {issued && (
-          <div className="text-right">
-            <p className="mono text-[11px] uppercase tracking-[0.18em] text-text-faint">
-              The issuer merely claimed
-            </p>
-            <p className="mono mt-1 text-lg text-text-dim">{issued.issuer_decision}</p>
-            <p className="mono mt-0.5 text-[10px] text-text-faint">a claim, not authority</p>
+          <div className="sm:text-right">
+            <p className="label">The issuer merely claimed</p>
+            <p className="mono mt-2 text-sm text-ink-soft">{issued.issuer_decision}</p>
+            <p className="mt-1 text-[11.5px] text-ink-faint">a claim, not authority</p>
           </div>
         )}
       </div>
 
-      <div className="border-t border-line px-6 py-5">
+      <div className="p-6">
         {decision.reasons.length > 0 && (
-          <ul className="space-y-1.5">
+          <ul className="space-y-2">
             {decision.reasons.map((reason) => (
-              <li key={reason} className="flex gap-2.5 text-sm leading-relaxed text-text-dim">
-                <span aria-hidden style={{ color: admitted ? "var(--permit)" : "var(--reject)" }}>
+              <li
+                key={reason}
+                className="flex gap-2.5 text-[13px] leading-relaxed text-ink-soft"
+              >
+                <span aria-hidden style={{ color: colour }}>
                   ›
                 </span>
                 {reason}
@@ -69,35 +59,46 @@ export function Verdict({
           </ul>
         )}
 
-        <dl className="mono mt-5 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-4 text-[11px]">
+        <dl className="mono tnum mt-6 grid gap-x-8 gap-y-4 border-t border-line pt-5 text-[11px] sm:grid-cols-3">
           {decision.failed_steps.length > 0 && (
-            <div>
-              <dt className="uppercase tracking-[0.14em] text-text-faint">Failed steps</dt>
-              <dd className="mt-1 text-reject">{decision.failed_steps.join(", ")}</dd>
-            </div>
-          )}
-          {issued && (
-            <div className="min-w-0">
-              <dt className="uppercase tracking-[0.14em] text-text-faint">Warrant</dt>
-              <dd className="mt-1 truncate text-text-dim">{issued.warrant_id}</dd>
-            </div>
+            <Field term="Failed steps">
+              <span style={{ color: "var(--reject)" }}>{decision.failed_steps.join(", ")}</span>
+            </Field>
           )}
           {logged && (
-            <>
-              <div>
-                <dt className="uppercase tracking-[0.14em] text-text-faint">Log leaf</dt>
-                <dd className="mt-1 text-text-dim">
-                  {logged.leaf_index} of {logged.tree_size}
-                </dd>
-              </div>
-              <div className="min-w-0 basis-full">
-                <dt className="uppercase tracking-[0.14em] text-text-faint">Root</dt>
-                <dd className="mt-1 truncate text-text-dim">{logged.root_hash}</dd>
-              </div>
-            </>
+            <Field term="Log leaf">
+              {logged.leaf_index} of {logged.tree_size}
+            </Field>
+          )}
+          {issued && (
+            <Field term="Warrant" wide>
+              <Hash value={issued.warrant_id} head={22} tail={8} label="warrant id" />
+            </Field>
+          )}
+          {logged && (
+            <Field term="Witnessed root" wide>
+              <Hash value={logged.root_hash} head={24} tail={10} label="root hash" />
+            </Field>
           )}
         </dl>
       </div>
+    </section>
+  );
+}
+
+function Field({
+  term,
+  children,
+  wide,
+}: {
+  term: string;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div className={wide ? "min-w-0 sm:col-span-3" : "min-w-0"}>
+      <dt className="label">{term}</dt>
+      <dd className="mt-1.5 min-w-0 text-ink-soft">{children}</dd>
     </div>
   );
 }

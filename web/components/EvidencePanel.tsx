@@ -24,23 +24,21 @@ import { classColour, classLabel } from "@/lib/provenance";
  */
 export function EvidencePanel({ attributed }: { attributed?: AttributedEventData }) {
   return (
-    <div className="rounded-xl border border-line bg-ink-raised p-6">
+    <section className="card flex flex-col p-6">
       <header className="flex items-baseline justify-between gap-4">
-        <h2 className="mono text-[11px] uppercase tracking-[0.18em] text-text-faint">
-          Per-argument attribution
-        </h2>
+        <h3 className="label">Per-argument attribution</h3>
         {attributed?.truncated && (
-          <span className="mono text-[10px] uppercase tracking-[0.14em] text-accent">
-            truncated at C-18
+          <span className="label" style={{ color: "var(--p4)" }}>
+            truncated · C-18
           </span>
         )}
       </header>
 
       {!attributed ? (
-        <p className="mt-6 text-sm text-text-faint">Waiting for the measurement to finish…</p>
+        <p className="mt-6 text-[13px] text-ink-faint">Waiting for the measurement to finish…</p>
       ) : (
         <>
-          <ul className="mt-6 space-y-5">
+          <ul className="mt-5 space-y-5">
             {Object.entries(attributed.argument_status).map(([field, status]) => (
               <ArgumentRow
                 key={field}
@@ -50,10 +48,14 @@ export function EvidencePanel({ attributed }: { attributed?: AttributedEventData
               />
             ))}
           </ul>
-          <Legend />
+          <p className="mt-auto pt-6 text-[12px] leading-relaxed text-ink-faint">
+            One action can be legitimate in one field and hijacked in another — the human
+            sets the amount while an attacker sets the destination. Action-level aggregation
+            averages that away, which is why attribution here is per argument.
+          </p>
         </>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -69,10 +71,10 @@ function ArgumentRow({
   return (
     <li>
       <div className="flex items-center justify-between gap-3">
-        <span className="mono text-sm text-text">{field}</span>
+        <span className="mono text-[13px] font-medium text-ink">{field}</span>
         <StatusTag status={status} />
       </div>
-      <div className="mt-2">
+      <div className="mt-2.5">
         {status === "attributed" && <AttributedBar shares={shares} />}
         {status === "invariant" && <Invariant shares={shares} />}
         {status === "unknown" && <Unknown />}
@@ -82,19 +84,21 @@ function ArgumentRow({
 }
 
 function StatusTag({ status }: { status: ArgumentStatus }) {
-  const style: Record<ArgumentStatus, string> = {
-    attributed: "border-text-dim/40 text-text",
-    invariant: "border-p0/50 text-p0",
-    unknown: "border-line-bright text-text-faint",
+  const tone: Record<ArgumentStatus, { fg: string; bg: string; bd: string }> = {
+    attributed: { fg: "var(--ink)", bg: "var(--sunken)", bd: "var(--line-strong)" },
+    invariant: { fg: "var(--p0)", bg: "rgba(46,107,79,0.06)", bd: "rgba(46,107,79,0.28)" },
+    unknown: { fg: "var(--ink-faint)", bg: "transparent", bd: "var(--line-strong)" },
   };
   const glyph: Record<ArgumentStatus, string> = {
     attributed: "◆",
     invariant: "▣",
     unknown: "○",
   };
+  const t = tone[status];
   return (
     <span
-      className={`mono shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em] ${style[status]}`}
+      className="label shrink-0 rounded-full border px-2.5 py-0.5"
+      style={{ color: t.fg, background: t.bg, borderColor: t.bd }}
     >
       <span aria-hidden className="mr-1.5">
         {glyph[status]}
@@ -111,11 +115,11 @@ function AttributedBar({ shares }: { shares: Record<string, string> }) {
 
   return (
     <div>
-      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-ink">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-sunken">
         {entries.map(([cls, value]) => (
           <div
             key={cls}
-            className="h-full transition-[width] duration-700 ease-out"
+            className="h-full transition-[width] duration-500 ease-out"
             style={{
               width: `${(Number(value) / total) * 100}%`,
               background: classColour(cls),
@@ -124,11 +128,12 @@ function AttributedBar({ shares }: { shares: Record<string, string> }) {
           />
         ))}
       </div>
-      <div className="mono mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+      <div className="mono tnum mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
         {entries.map(([cls, value]) => (
-          <span key={cls} style={{ color: classColour(cls) }}>
-            {cls} {value}
-            <span className="ml-1 text-text-faint">{classLabel(cls)}</span>
+          <span key={cls}>
+            <span style={{ color: classColour(cls) }}>{cls}</span>
+            <span className="ml-1 text-ink">{value}</span>
+            <span className="ml-1.5 text-ink-faint">{classLabel(cls)}</span>
           </span>
         ))}
       </div>
@@ -137,64 +142,43 @@ function AttributedBar({ shares }: { shares: Record<string, string> }) {
 }
 
 /**
- * Overlapping chips, not a bar. The value is redundantly determined, which is a statement
- * about *structure* rather than about magnitude -- and it is the normal shape of a
- * legitimate action, where the human and the operator's own records agree.
+ * A statement about structure, not a magnitude — so it is set as prose in a bordered
+ * panel rather than as a track. Redundancy is the normal shape of a legitimate action,
+ * where the human and the operator's own records independently agree.
  */
 function Invariant({ shares }: { shares: Record<string, string> }) {
   const classes = Object.keys(shares);
   return (
-    <div className="rounded-md border border-p0/30 bg-p0/[0.04] px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <span aria-hidden className="text-p0">
-          ▣
-        </span>
-        <p className="text-xs leading-relaxed text-text-dim">
-          Removing any single source left this value unchanged — it is{" "}
-          <span className="text-p0">redundantly determined</span>.
-          {classes.length > 0 && (
-            <>
-              {" "}
-              <span className="mono">{classes.join(" + ")}</span> each supply it
-              independently.
-            </>
-          )}
-        </p>
-      </div>
-      <p className="mt-1.5 pl-6 text-[11px] text-text-faint">
+    <div className="rounded-md border border-p0/25 bg-p0/[0.035] px-3.5 py-3">
+      <p className="text-[12.5px] leading-relaxed text-ink-soft">
+        Removing any single source left this value unchanged — it is{" "}
+        <span className="font-medium text-p0">redundantly determined</span>.
+        {classes.length > 0 && (
+          <>
+            {" "}
+            <span className="mono text-ink">{classes.join(" + ")}</span> each supply it
+            independently.
+          </>
+        )}
+      </p>
+      <p className="mt-1.5 text-[11.5px] text-ink-faint">
         Evidence of invariance. Not the same as no evidence.
       </p>
     </div>
   );
 }
 
-/** Hatching, not an empty bar. An empty bar reads as "zero"; this reads as "no answer". */
+/** Hatching, not an empty bar. An empty bar reads as “zero”; this reads as “no answer”. */
 function Unknown() {
   return (
-    <div className="rounded-md border border-dashed border-line-bright bg-ink px-3 py-2.5">
-      <div className="flex items-center gap-2">
-        <span aria-hidden className="text-text-faint">
-          ○
-        </span>
-        <p className="text-xs leading-relaxed text-text-dim">
-          Every counterfactual cancelled the action, so no comparable run exists.
-        </p>
-      </div>
-      <div className="hatched mt-2 ml-6 h-2.5 rounded-full" />
-      <p className="mt-1.5 pl-6 text-[11px] text-text-faint">
-        The absence of evidence. Reporting this as zero influence would fabricate a
-        finding.
+    <div className="rounded-md border border-dashed border-line-strong px-3.5 py-3">
+      <p className="text-[12.5px] leading-relaxed text-ink-soft">
+        Every counterfactual cancelled the action, so no comparable run exists.
+      </p>
+      <div className="hatched mt-2.5 h-1.5 rounded-full" />
+      <p className="mt-1.5 text-[11.5px] text-ink-faint">
+        The absence of evidence. Reporting this as zero influence would fabricate a finding.
       </p>
     </div>
-  );
-}
-
-function Legend() {
-  return (
-    <p className="mt-6 border-t border-line pt-4 text-[11px] leading-relaxed text-text-faint">
-      One action can be legitimate in one field and hijacked in another — the human sets
-      the amount while an attacker sets the destination. Action-level aggregation averages
-      that away, which is why attribution here is per argument.
-    </p>
   );
 }

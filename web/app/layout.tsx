@@ -1,28 +1,31 @@
 import type { Metadata } from "next";
-import { Bebas_Neue, DM_Sans, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
-import { Cursor } from "@/components/Cursor";
 
-const bebas = Bebas_Neue({
-  variable: "--font-bebas",
-  weight: "400",
+// Editorial serif for display, at restrained sizes. The authority comes from the face and
+// the spacing, not from setting it 9rem tall.
+const serif = Source_Serif_4({
+  variable: "--font-source-serif",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
-// Hashes, roots and multibase keys are read character by character when someone is
-// checking one against another, so the monospace face is load-bearing rather than styling.
+// Hashes, roots and multibase keys get read character by character when someone checks one
+// against another, so the monospace face is load-bearing rather than decorative.
 const mono = JetBrains_Mono({
   variable: "--font-mono-code",
   subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "AegisMesh — prove why your agent did that",
+  title: "AegisMesh — provenance for agent actions",
   description:
     "Every consequential action an AI agent takes carries a signed Action Warrant binding "
     + "human intent, the delegation chain, and measured causal evidence of which input "
@@ -33,12 +36,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${bebas.variable} ${dmSans.variable} ${mono.variable} h-full antialiased`}
+      className={`${serif.variable} ${inter.variable} ${mono.variable} h-full antialiased`}
     >
-      <body className="noise min-h-full flex flex-col bg-ink text-text">
-        <Cursor />
-        {children}
-      </body>
+      <body className="flex min-h-full flex-col bg-paper text-ink">{children}</body>
     </html>
   );
 }
