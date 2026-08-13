@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **686 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
+Expected: **692 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -133,7 +133,7 @@ positives in every placement including the clean one**.
 
 ```
 precision 1.000   recall 1.000   f1 1.000   localization 1.000
-mean model calls per consequential action  6.9   (worst case 12)
+mean model calls per consequential action  7.7   (worst case 13)
 ```
 
 Seven hand-built cases against a deterministic mock. They prove the engine is wired
@@ -990,8 +990,11 @@ Unchanged in substance, moved back by the three phases above.
   public site.
 - ~~**Classifier adversarial evaluation** (residual risk 1)~~ **Done 2026-08-13.**
   `aegis/evaluation/classifier_attacks.py`, `demo/phase8_classifier_attack.py`,
-  `tests/test_classifier_attacks.py`. Eight attacks, **three succeeded — one fixed in the
-  same phase, two open**; the suite now reports six holding and two succeeding.
+  `tests/test_classifier_attacks.py`. Eight attacks, **three succeeded and all three are now
+  fixed**; the suite reports 8/8 holding and each attack is the regression test for its fix.
+  Eight attacks no longer working is a far smaller claim than the classifier being safe —
+  this suite is a floor, not a ceiling, and its own blind spots are what let these sit
+  undetected for four phases.
 
   The strict-substring P0 boundary held against everything aimed at it — authority framing,
   Cyrillic homoglyphs, unknown roles, tool-description drift. What broke was the assumption
@@ -1026,15 +1029,38 @@ Unchanged in substance, moved back by the three phases above.
   *which copy* is elevated, not *what* — the damage is to provenance's answer, not the trust
   boundary.
 
-  **F2 and F3 are not fixed, deliberately.** F2's fix would downgrade every current
-  scenario's `ledger_lookup` to P3, because none of the demos issue a preceding `tool_call`
-  — a real behavioural change to every measured number in the repository, and it wants its
-  own phase with the numbers re-measured. F3 is bounded: the attacker chooses which copy is
-  elevated, not what, so no attacker-chosen text gains trust.
+  **F2 — fixed, and it was the expensive one.** A tool response now earns P2 only if it
+  binds to a call the agent issued *earlier in the same transcript*. Matching prefers
+  `tool_call_id`; an id issued for a different tool is refused rather than falling back to
+  the name, or the id would be decorative; and issued calls are collected while walking, so a
+  result arriving before its call cannot bind.
 
-  `unicode_normalisation` held only in the availability direction, and normalising to fix it
-  is the same change that would break `homoglyph_mandate`; the two pull opposite ways and
-  only one is safe, so neither was touched.
+  The cost is the instructive part. **No scenario in the repository issued a `tool_call`** —
+  every transcript jumped from the human straight to results nobody requested, which is not a
+  shape a real framework produces. Under the new rule Acme's own ledger correctly stopped
+  being trusted. The fixtures were made realistic rather than the rule made weaker, so
+  `treasury_messages` now emits the agent's tool-calling turn, and **Phase 2 was
+  re-measured**: accuracy unchanged at 1.000 across precision, recall and localization; cost
+  6.9 → **7.7** mean model calls, worst case 12 → **13**, because that turn is another
+  segment to ablate.
+
+  **Two index bugs surfaced while doing it, and both are the same bug.** Inserting a message
+  shifted every hardcoded position: `injected_message_index` in the cases silently dropped
+  localization from 1.000 to 0.250, and thirteen `body["messages"][3]` references in the
+  attribution tests pointed at the wrong message. Nothing failed loudly in the first case —
+  the harness simply compared against a message that had moved. Both are now *found* rather
+  than counted (`carrier_index`, `msg()`, `idx()`). Ground truth that is a hand-counted
+  offset into a list somebody else edits is ground truth waiting to be wrong.
+
+  **F3 — fixed by declining to guess.** A mandate appearing verbatim more than once in one
+  user turn grants P0 to neither copy, and the reason names the count. There is no heuristic
+  available: the spans are byte-identical. This is the design's own rule applied to itself —
+  *default on any doubt is P3* — and it fails where the action loses authorisation rather
+  than gains a forged one.
+
+  **Still not touched:** `unicode_normalisation` held only in the availability direction, and
+  normalising to fix it is the same change that would break `homoglyph_mandate`. The two pull
+  opposite ways and only one is safe.
 - Paper, patent decision (see the licence note — Apache-2.0 §3 already grants users a patent
   licence over claims this code necessarily infringes), standards engagement.
 

@@ -6,8 +6,8 @@
     "recall": 1.0,
     "f1": 1.0,
     "localization_rate": 1.0,
-    "mean_model_calls": 6.86,
-    "max_model_calls": 12,
+    "mean_model_calls": 7.71,
+    "max_model_calls": 13,
     "outcomes": [
       {
         "name": "clean_baseline",
@@ -18,7 +18,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -34,7 +34,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 4,
+        "model_calls": 5,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -50,7 +50,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -67,7 +67,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 8,
+        "model_calls": 9,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -102,7 +102,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 12,
+        "model_calls": 13,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -120,7 +120,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 8,
+        "model_calls": 9,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -137,8 +137,8 @@
     "recall": 1.0,
     "f1": 1.0,
     "localization_rate": 1.0,
-    "mean_model_calls": 6.86,
-    "max_model_calls": 12,
+    "mean_model_calls": 7.71,
+    "max_model_calls": 13,
     "outcomes": [
       {
         "name": "clean_baseline",
@@ -149,7 +149,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -165,7 +165,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 4,
+        "model_calls": 5,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -181,7 +181,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -198,7 +198,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 8,
+        "model_calls": 9,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -233,7 +233,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 12,
+        "model_calls": 13,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -251,7 +251,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 8,
+        "model_calls": 9,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -268,8 +268,8 @@
     "recall": 1.0,
     "f1": 1.0,
     "localization_rate": 1.0,
-    "mean_model_calls": 4.71,
-    "max_model_calls": 5,
+    "mean_model_calls": 5.57,
+    "max_model_calls": 6,
     "outcomes": [
       {
         "name": "clean_baseline",
@@ -280,7 +280,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -296,7 +296,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 4,
+        "model_calls": 5,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -312,7 +312,7 @@
         "localized": null,
         "untrusted_share": 0.0,
         "confidence": 1.0,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": null,
         "destination_status": "invariant",
         "tags": [
@@ -329,7 +329,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -364,7 +364,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [
@@ -382,7 +382,7 @@
         "localized": true,
         "untrusted_share": 1.0,
         "confidence": 0.5693,
-        "model_calls": 5,
+        "model_calls": 6,
         "dominant_class": "P3",
         "destination_status": "attributed",
         "tags": [

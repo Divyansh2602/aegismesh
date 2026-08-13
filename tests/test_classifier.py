@@ -99,10 +99,45 @@ def test_spans_are_exact_and_non_overlapping(mandate):
 
 
 def test_closed_world_tool_response_is_trusted(registry, mandate):
+    """P2 requires the response to answer a call the agent actually issued.
+
+    The agent turn is not decoration here: a tool result that binds to no call is an
+    unrequested assertion, and Phase 8 found that trusting one on the strength of its
+    `name` alone let anything able to append a message mint P2 (finding F2).
+    """
+    trace = ContextClassifier(registry=registry, mandate=mandate).classify(
+        {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "ledger_lookup", "arguments": "{}"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "name": "ledger_lookup",
+                    "content": "GB29NWBK6016",
+                },
+            ]
+        }
+    )
+    assert trace.segments[-1].cls is P.TRUSTED_TOOL
+
+
+def test_an_unrequested_closed_world_response_is_not_trusted(registry, mandate):
+    """The same message with no call behind it. Pinning proves the tool is authentic;
+    binding proves this payload came from it."""
     trace = ContextClassifier(registry=registry, mandate=mandate).classify(
         {"messages": [{"role": "tool", "name": "ledger_lookup", "content": "GB29NWBK6016"}]}
     )
-    assert classes_of(trace) == [P.TRUSTED_TOOL]
+    assert classes_of(trace) == [P.UNTRUSTED_EXTERNAL]
 
 
 def test_pinned_conduit_tool_response_stays_untrusted(registry, mandate):

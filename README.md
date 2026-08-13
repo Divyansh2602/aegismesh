@@ -127,7 +127,7 @@ signal away.
 | 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-686 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+692 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -259,8 +259,9 @@ bucket — worse than having no limiter, because it looks like one.
 ## Attacking the classifier
 
 `python demo/phase8_classifier_attack.py` — eight attacks on the trust boundary itself.
-**Three succeeded: one was fixed in the same phase, two are open** and documented in
-[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §6 rather than quietly forgotten.
+**Three succeeded, and all three are now fixed**; each attack remains as the regression test
+for its own fix. The findings and their costs are in
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §6.
 
 Phase 4 measured attribution *given correct classification* and said so. This closes that
 gap. The strict-substring P0 boundary turned away everything aimed straight at it — content
@@ -283,6 +284,17 @@ two agree on the cases somebody thought to write down.
 
 The property that was never enforced, now stated and tested: *the classified text and the
 text the model receives must be the same text.*
+
+The other two: a tool response now has to **bind to a call the agent actually issued** —
+pinning proves the tool is authentic, binding proves this payload came from it — and a
+mandate appearing verbatim twice in one turn now grants P0 to **neither** copy, because the
+two spans are byte-identical and there is no honest way to pick. That fix has a cost worth
+stating: no scenario in this repo issued a `tool_call`, so the fixtures were made realistic
+and **Phase 2 was re-measured** — accuracy unchanged at 1.000, cost 6.9 → **7.7** mean model
+calls.
+
+Eight attacks no longer working is a much smaller claim than the classifier being safe. The
+suite is a floor, not a ceiling.
 
 ## Attacking our own design
 

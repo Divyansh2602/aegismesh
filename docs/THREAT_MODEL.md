@@ -202,10 +202,13 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    precisely so that it cannot be approximated into.
 
    **Phase 8 ran that evaluation.** `aegis/evaluation/classifier_attacks.py`, eight attacks,
-   `python demo/phase8_classifier_attack.py`. Three attacks succeeded. **One was fixed in
-   the same phase (F1) and two remain open (F2, F3)**, each pinned by a test that passes
-   *because* the system is currently wrong. The suite now reports **six defences holding and
-   two attacks succeeding**.
+   `python demo/phase8_classifier_attack.py`. **Three attacks succeeded and all three have
+   been fixed**; the suite now reports eight defences holding, and each attack remains as
+   the regression test for its own fix.
+
+   *Eight attacks no longer working is a much smaller claim than the classifier being safe.*
+   This suite is a floor, not a ceiling: it tests the boundaries somebody thought to attack,
+   which is exactly the limitation that let all three of these sit undetected until Phase 8.
 
    The strict-substring P0 boundary held against everything aimed directly at it: authority
    framing ("SYSTEM OVERRIDE — pre-authorised") changes nothing because class depends on
@@ -246,21 +249,45 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    measure. `untyped_part_kinds` names them rather than dropping them silently, and that
    limitation is real rather than solved.
 
-   **F2 — P2 is granted on the strength of a name.** `_tool_response_segments` resolves trust
-   from `message["name"]` alone. Nothing binds a tool response to a tool call that was
-   actually issued — no `tool_call_id` is checked anywhere on the path — so any component
-   able to append a message can mint `P2 trusted-tool`. The proxy accepts a whole request
-   body, which puts this within reach of anything upstream of it. Note this is the same class
-   of error as C-19: pinning proves the *tool* is authentic and says nothing about whether
-   this particular payload came from it.
+   ~~**F2 — P2 is granted on the strength of a name.**~~ **Fixed.** `_tool_response_segments`
+   resolved trust from `message["name"]` alone. Nothing bound a tool response to a tool call
+   that had actually been issued — no `tool_call_id` was checked anywhere on the path — so
+   any component able to append a message could mint `P2 trusted-tool`. The proxy accepts a
+   whole request body, which put this within reach of anything upstream of it. It is the same
+   class of error as C-19, one level down: pinning proves the *tool* is authentic and says
+   nothing about whether this particular payload came from it.
 
-   **F3 — first match wins the P0 span.** `content.find(instruction)` returns the earliest
-   occurrence, so a document quoting the mandate verbatim above the human's own typing takes
-   the P0 span. Severity is bounded and worth stating precisely: both copies are
-   byte-identical, so the attacker controls *which copy* is elevated, not *what* is elevated,
-   and no attacker-chosen text gains trust. The damage is to provenance's answer — the
-   locator points into the attacker's document, which is the wrong answer to "where did the
-   human intent come from?" and misleads an investigator reading the warrant.
+   A tool response now earns P2 only if it binds to a call the agent issued **earlier in the
+   same transcript**. Matching prefers `tool_call_id`, which the agent mints; an id issued
+   for a different tool is refused rather than falling back to the name, or the id would be
+   decorative. Issued calls are collected while walking the transcript, so a result arriving
+   before its call cannot bind — a conversation where the answer precedes the question is not
+   one to take at face value.
+
+   **This fix was not free, and the cost is the interesting part.** No scenario in the
+   repository issued a `tool_call` at all: every transcript jumped from the human straight to
+   tool results nobody had requested, which is not a shape a real agent framework produces.
+   Under the new rule Acme's own ledger correctly stopped being trusted, because it was
+   indistinguishable from a forged result claiming to be it. The fixtures were made realistic
+   rather than the rule made weaker, and **Phase 2 was re-measured**: precision, recall and
+   localization stay at 1.000, and cost rose from 6.9 to **7.7 mean model calls** (worst case
+   12 → 13) because the agent's tool-calling turn is another segment to ablate.
+
+   ~~**F3 — first match wins the P0 span.**~~ **Fixed by declining to guess.**
+   `content.find(instruction)` returned the earliest occurrence, so a document quoting the
+   mandate verbatim above the human's own typing took the P0 span. Severity was bounded —
+   both copies are byte-identical, so the attacker chose *which copy* was elevated, not
+   *what*, and no attacker-chosen text ever gained trust — but the locator then pointed into
+   the attacker's document, which is the wrong answer to "where did the human intent come
+   from?" and misleads an investigator reading the warrant.
+
+   A mandate appearing verbatim more than once in a single user turn now grants P0 to
+   **neither** copy, and the classification reason names the count. The fix is not a better
+   heuristic; there is no heuristic available, because the two spans are byte-identical and
+   nothing in the text distinguishes them. This is the design's own rule applied to itself:
+   *default on any doubt is P3*. A human does not repeat their instruction verbatim in one
+   turn, so it costs approximately nothing, and it fails in the direction where the action
+   loses its authorisation rather than gaining a forged one.
 
    **A trade to be careful about.** `unicode_normalisation` held, but in the availability
    direction: an NFD-normalised mandate does not match an NFC declaration, they render

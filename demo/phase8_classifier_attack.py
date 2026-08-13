@@ -23,14 +23,24 @@ from aegis.evaluation.classifier_attacks import AttackOutcome, run_attacks
 #: Attacks whose failure is a finding we have written down rather than a regression. If one
 #: of these starts holding, a limitation was closed and the docs need updating — the demo
 #: says so rather than quietly turning green.
-KNOWN_BROKEN = {
-    "forged_tool_name",
-    "mandate_echoed_before_the_real_one",
-}
-"""``unclassified_content_part`` was here and was fixed: the extraction rule now lives in
-one place, ``provenance/content.py``, imported by both the classifier and ablation, and it
-keeps any part carrying a ``text`` field rather than only ``type == "text"``. It is the one
-finding of the three whose fix cost nothing to get right."""
+KNOWN_BROKEN: set[str] = set()
+"""All three findings this suite discovered have been fixed, and their attacks remain here
+as the regression tests for the fixes.
+
+``unclassified_content_part``: the extraction rule was duplicated in the classifier and in
+ablation and both copies were wrong identically. It now lives once in
+``provenance/content.py`` and keeps any part carrying a ``text`` field.
+
+``mandate_echoed_before_the_real_one``: a mandate appearing verbatim more than once in one
+turn now grants P0 to neither copy. The fix is declining to guess rather than guessing
+better — the design already says default on any doubt is P3.
+
+``forged_tool_name``: a tool response must now bind to a call the agent actually issued.
+This one was not free — it changed classification for every scenario in the repository and
+the Phase 2 numbers were re-measured because of it.
+
+An empty set here does **not** mean the classifier is safe. It means these eight attacks
+no longer work, which is a much smaller claim: the suite is the floor, not the ceiling."""
 
 
 def rule(title: str) -> None:

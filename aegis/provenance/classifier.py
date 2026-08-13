@@ -39,6 +39,46 @@ from aegis.provenance.registry import MandateContext, ToolRegistry
 _SEPARATOR = "\n"
 
 
+class _IssuedCalls:
+    """The tool calls the agent has actually made, so far, in this conversation.
+
+    Exists because trust in a tool response used to rest on the response's own claim about
+    its name. In the OpenAI protocol a tool message answers a specific ``tool_call``; a
+    result nobody asked for is not a result, it is an assertion, and it should carry no
+    more weight than any other untrusted text that arrived in the context.
+
+    Matching prefers ``tool_call_id`` — the strong form, since the id is minted by the
+    agent — and falls back to the tool name where no id is supplied, which some frameworks
+    omit. The fallback is weaker on purpose and is still strictly better than the previous
+    behaviour of trusting a name with no corresponding call at all.
+    """
+
+    __slots__ = ("_by_id", "_names")
+
+    def __init__(self) -> None:
+        self._by_id: dict[str, str] = {}
+        self._names: set[str] = set()
+
+    def record(self, message: dict) -> None:
+        if message.get("role") != "assistant":
+            return
+        for call in message.get("tool_calls", []) or []:
+            name = call.get("function", {}).get("name", "")
+            if not name:
+                continue
+            self._names.add(name)
+            if call_id := call.get("id"):
+                self._by_id[str(call_id)] = name
+
+    def binds(self, message: dict, name: str) -> bool:
+        call_id = message.get("tool_call_id")
+        if call_id is not None:
+            # An id that was never issued is a forgery; an id issued for a *different*
+            # tool is a swap, and both are refused rather than falling back to the name.
+            return self._by_id.get(str(call_id)) == name
+        return name in self._names
+
+
 class ContextClassifier:
     """Builds a ContextTrace from a chat-completions request body."""
 
@@ -76,9 +116,15 @@ class ContextClassifier:
         for segment, text in self._tool_declaration_segments(body):
             cursor = self._append(trace, parts, segment, text, cursor)
 
+        # Calls the agent has actually issued *so far*. Built as we walk rather than
+        # up front, so a tool result can only bind to a call that precedes it -- a
+        # transcript where the answer arrives before the question is not one to trust.
+        issued: _IssuedCalls = _IssuedCalls()
+
         for index, message in enumerate(body.get("messages", [])):
-            for segment, text in self._message_segments(message, index, trace):
+            for segment, text in self._message_segments(message, index, trace, issued):
                 cursor = self._append(trace, parts, segment, text, cursor)
+            issued.record(message)
 
         trace.assembled_context = _SEPARATOR.join(parts)
         return trace
@@ -149,7 +195,9 @@ class ContextClassifier:
                 text,
             )
 
-    def _message_segments(self, message: dict, index: int, trace: ContextTrace):
+    def _message_segments(
+        self, message: dict, index: int, trace: ContextTrace, issued: _IssuedCalls
+    ):
         role = message.get("role", "")
         content = _as_text(message.get("content"))
 
@@ -170,7 +218,7 @@ class ContextClassifier:
             yield from self._assistant_segments(message, content, index, trace)
 
         elif role == "tool":
-            yield from self._tool_response_segments(message, content, index)
+            yield from self._tool_response_segments(message, content, index, issued)
 
         elif content:
             yield (
@@ -196,6 +244,32 @@ class ContextClassifier:
             return
 
         instruction = self.mandate.instruction.strip() if self.mandate else ""
+        occurrences = content.count(instruction) if instruction else 0
+
+        if occurrences > 1:
+            # Fail closed on ambiguity (THREAT_MODEL section 6, finding F3). `str.find`
+            # returns the earliest match, so a document quoting the mandate above the
+            # human's own typing takes the P0 span -- and the two copies are byte-identical,
+            # so nothing in the text can tell them apart. Rather than pick one and be
+            # confidently wrong about where human intent came from, grant P0 to neither.
+            #
+            # A human does not repeat their instruction verbatim in one turn, so this
+            # costs approximately nothing in practice and refuses in the safe direction:
+            # the action loses its authorisation rather than gaining a forged one.
+            yield (
+                self._simple(
+                    content,
+                    DEFAULT_CLASS,
+                    "user_input",
+                    f"the declared mandate appears {occurrences} times in one user turn; "
+                    "which copy the human wrote cannot be determined from the text, so no "
+                    f"span is granted {ProvenanceClass.HUMAN_MANDATE.value}",
+                    MessageLocator(message_index=message_index, start=0, end=len(content)),
+                ),
+                content,
+            )
+            return
+
         index = content.find(instruction) if instruction else -1
 
         if index < 0:
@@ -295,21 +369,37 @@ class ContextClassifier:
         segment.parent_segments = parent_ids
         yield segment, rendered
 
-    def _tool_response_segments(self, message: dict, content: str, message_index: int):
+    def _tool_response_segments(
+        self, message: dict, content: str, message_index: int, issued: _IssuedCalls
+    ):
         """Classify a tool result.
 
         Pinning is necessary but not sufficient for P2. A pinned *conduit* tool -- one that
         relays content from outside the trust boundary, like a PDF reader or web fetcher --
         returns attacker-influenced data by design, so its responses stay P3. Only
         closed-world tools returning operator-controlled data earn P2.
+
+        **Nor is the name sufficient.** Trust used to be resolved from ``message["name"]``
+        alone, with nothing checking that the call had ever been made, so anything able to
+        append a message could mint P2 by claiming to be the ledger (THREAT_MODEL.md
+        section 6, finding F2). A response now has to bind to a call the agent actually
+        issued earlier in the same conversation. This is C-19's lesson one level down:
+        pinning proves the *tool* is authentic, binding proves *this payload came from it*.
         """
         name = message.get("name") or message.get("tool_call_id") or "unknown"
         tool = self.registry.get(name)
-        trusted = self.registry.response_is_trusted(name)
+        bound = issued.binds(message, name)
+        trusted = self.registry.response_is_trusted(name) and bound
         cls = ProvenanceClass.TRUSTED_TOOL if trusted else DEFAULT_CLASS
 
         if trusted:
-            reason = f"response from pinned closed-world tool '{name}'"
+            reason = f"response from pinned closed-world tool '{name}', bound to its call"
+        elif not bound and self.registry.response_is_trusted(name):
+            reason = (
+                f"tool '{name}' is pinned and closed-world, but this response binds to no "
+                f"call the agent issued; unrequested results are not evidence, so it stays "
+                f"{DEFAULT_CLASS.value}"
+            )
         elif tool is not None:
             reason = (
                 f"tool '{name}' is pinned but relays external content; "
