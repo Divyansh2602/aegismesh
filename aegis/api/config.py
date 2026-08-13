@@ -35,6 +35,22 @@ class ApiSettings(BaseSettings):
     across restarts when it is set.
     """
 
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    """Comma-separated browser origins allowed to call this API.
+
+    An allowlist rather than ``*``, and credentials are disabled at the middleware. Both
+    are worth stating because the obvious objection is that CORS protects browsers rather
+    than servers -- ``curl`` ignores it entirely, so a wildcard would add no server-side
+    exposure *today*. The reason it is still not the default is that the safety of a
+    wildcard rests on a property of this service that is one commit away from changing:
+    sessions travel in ``X-Aegis-Session`` and nothing is attached automatically. The day
+    anyone introduces a cookie, a wildcard silently becomes a real hole, whereas an
+    allowlist stays correct. The narrow default is the one that does not depend on
+    remembering why the wide one was safe.
+
+    The deployed console's origin is set here in Phase 7; empty disables CORS entirely.
+    """
+
     max_sessions: int = 200
     max_runs_per_session: int = 25
     session_ttl_seconds: int = 7200
@@ -98,6 +114,10 @@ class ApiSettings(BaseSettings):
     API. When a visitor hits it, the response says which control stopped them, because a
     limit that demonstrates the threat model is worth more than one that hides it.
     """
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 settings = ApiSettings()

@@ -15,9 +15,14 @@ from collections import OrderedDict
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aegis.api.scenarios import Scenario
+
+if TYPE_CHECKING:
+    from aegis.attribution.models import AttributionResult
+    from aegis.log.log import Receipt
+    from aegis.provenance.models import ContextTrace
 
 RunStatus = str  # "running" | "complete" | "failed"
 
@@ -28,6 +33,32 @@ class RunEvent:
     type: str
     at: str
     data: dict
+
+
+@dataclass
+class Evidence:
+    """The live objects a run produced, kept because two consumers re-derive from them.
+
+    ``stages`` already holds a *serialized* view of all of this, and that view is what the
+    console reads. It is deliberately not what these consumers get. Attacks re-issue a
+    warrant over the same measurement, and replay re-runs the measurement itself, so both
+    need the objects the issuer and the engine actually accept -- reconstructing an
+    ``AttributionResult`` by parsing its own summary back out of JSON would mean the attack
+    path and the honest path no longer share a representation, which is exactly the drift
+    ``runner`` exists to prevent.
+
+    Retained per run, so the ceiling is ``max_sessions x max_runs_per_session``. A trace and
+    an attribution result are small next to the event log those same bounds already permit
+    (see ``config.session_model_call_budget``), so this widens an existing bound rather than
+    introducing a new one.
+    """
+
+    body: dict
+    trace: ContextTrace
+    attribution: AttributionResult
+    arguments: dict
+    receipt: Receipt | None = None
+    """Present once the warrant reached the log. Absent runs cannot be attacked."""
 
 
 @dataclass
@@ -46,6 +77,9 @@ class Run:
 
     artifacts: dict | None = None
     """The auditor bundle, pinned on first request. See ``app.artifact_bundle``."""
+
+    evidence: Evidence | None = None
+    """What the attack and replay endpoints re-derive from. Absent until attribution ran."""
 
     task: asyncio.Task | None = None
     """The background task executing this run, held so the event loop cannot collect it."""

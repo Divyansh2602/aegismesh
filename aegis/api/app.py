@@ -24,11 +24,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from aegis import __version__
-from aegis.api import runner
+from aegis.api import attacks, runner
 from aegis.api.config import ApiSettings
 from aegis.api.config import settings as default_settings
 from aegis.api.limits import (
@@ -43,6 +44,8 @@ from aegis.api.limits import (
 from aegis.api.runs import Run, RunEvent
 from aegis.api.scenarios import Scenario, catalogue, custom_scenario
 from aegis.api.session import Session, SessionStore
+from aegis.attribution.client import InProcessMockClient
+from aegis.audit.replay import replay_attribution
 from aegis.common.ids import prefixed_id
 from aegis.log.log import Receipt, TransparencyLog, encode_hash
 from aegis.log.storage import SqliteLogStorage
@@ -83,8 +86,36 @@ def create_app(
     app.state.arrivals = ArrivalLimiter(config)
     app.state.attribution_slots = asyncio.Semaphore(config.max_concurrent_attributions)
     app.middleware("http")(_limit_request_size)
+    _add_cors(app, config)
     app.include_router(_router())
     return app
+
+
+def _add_cors(app: FastAPI, config: ApiSettings) -> None:
+    """Let the console's origin call this API, and nothing else.
+
+    Added *after* the size middleware so it sits outside it. Order matters twice: a
+    preflight carries no body and must not be size-checked, and a 413 that comes back
+    without CORS headers is opaque to the browser -- the console would show a network
+    error where the whole point of that refusal is to name the control that refused.
+
+    ``allow_credentials`` stays False. Sessions travel in ``X-Aegis-Session`` because the
+    caller chooses to send them, which is what leaves this service with no CSRF surface
+    rather than a defended one; enabling credentials here would quietly hand that back.
+    """
+    origins = config.cors_origin_list
+    if not origins:
+        return
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=[SESSION_HEADER, "Content-Type", "Last-Event-ID"],
+        # The console offers the auditor files as downloads and names them from this
+        # header; without exposing it, fetch() can read the body but not the filename.
+        expose_headers=["Content-Disposition"],
+    )
 
 
 async def _limit_request_size(request: Request, call_next):
@@ -407,6 +438,99 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
             },
         )
 
+    # Registered before the ``/{stage}`` catch-all below. Route matching is by
+    # registration order, so declaring these later would let ``{stage}`` swallow
+    # ``GET .../attacks`` and answer a real endpoint with "this run has no attacks stage".
+    @router.get("/v1/runs/{run_id}/attacks")
+    async def list_attacks(
+        run_id: str, request: Request, x_aegis_session: str | None = Header(default=None)
+    ) -> dict:
+        session = _require_session(request, x_aegis_session)
+        run = _require_run(session, run_id)
+        return {
+            "run_id": run.run_id,
+            "attacks": attacks.catalogue(),
+            "note": (
+                "Each one runs the real defence against a real mutation. `defended` "
+                "reports whether the attacker lost; it is a measurement, not a promise."
+            ),
+        }
+
+    @router.post("/v1/runs/{run_id}/attacks/{name}")
+    async def run_attack(
+        run_id: str,
+        name: str,
+        request: Request,
+        x_aegis_session: str | None = Header(default=None),
+    ) -> dict:
+        session = _require_session(request, x_aegis_session)
+        config: ApiSettings = request.app.state.settings
+        request.app.state.arrivals.check(
+            f"attack:{client_key(request, config)}", config.runs_per_minute
+        )
+        run = _require_run(session, run_id)
+        return await attacks.execute(
+            name, run, session, request.app.state.log, request.app.state.log_lock
+        )
+
+    @router.post("/v1/runs/{run_id}/replay")
+    async def replay(
+        run_id: str, request: Request, x_aegis_session: str | None = Header(default=None)
+    ) -> dict:
+        """Re-measure the attribution this warrant asserts, and report every disagreement.
+
+        This is the only endpoint that makes a *second* attribution's worth of model
+        calls, which makes it the cheapest denial-of-service on the surface if left
+        unbudgeted. It therefore passes the same three gates a run does -- arrival rate,
+        session budget, concurrency -- and the calls it spends are counted against the
+        visitor rather than being free because they happen under a different route name.
+
+        The client is wrapped rather than the engine instrumented: ``replay_attribution``
+        builds its engine from the warrant's own ``replay_ref``, and letting this endpoint
+        pass in a pre-built engine would mean the auditor replays under settings the API
+        chose instead of the ones the issuer committed to.
+        """
+        session = _require_session(request, x_aegis_session)
+        config: ApiSettings = request.app.state.settings
+        request.app.state.arrivals.check(
+            f"replay:{client_key(request, config)}", config.runs_per_minute
+        )
+        check_session_budget(session.model_calls_spent, config)
+
+        run = _require_run(session, run_id)
+        document = _require_stage(run, "warrant")
+        if run.evidence is None:
+            raise HTTPException(
+                status_code=409,
+                detail="this run recorded no trace, so there is nothing to replay against",
+            )
+
+        counter = _CountingClient(InProcessMockClient())
+        try:
+            async with request.app.state.attribution_slots:
+                report = await replay_attribution(
+                    document, run.evidence.body, run.evidence.trace, counter
+                )
+        finally:
+            # In the ``finally`` so an attribution that raises halfway still bills for the
+            # calls it made. A failure path that resets the meter is a free retry loop.
+            session.model_calls_spent += counter.calls
+
+        return {
+            "run_id": run.run_id,
+            "model": runner.MODEL_LABEL,
+            "model_calls": counter.calls,
+            **report.as_dict(),
+            "note": (
+                "Replay checks whether the issuer's numbers are reproducible, which is a "
+                "different question from whether the warrant is authentic. A contradiction "
+                "is evidence the claim does not reproduce; it is not proof of intent, and "
+                "honest causes exist. Here the auditor and the issuer share one bundled "
+                "model, so a reproducible result is weaker evidence than it would be "
+                "against an auditor holding their own key to a hosted model."
+            ),
+        }
+
     @router.get("/v1/runs/{run_id}/{stage}")
     async def get_stage(
         run_id: str,
@@ -506,6 +630,24 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
         }
 
     return router
+
+
+class _CountingClient:
+    """Wraps a model client to bill the session for what a replay actually spent.
+
+    The engine's own counter lives on the ``AttributionResult``, which a replay never
+    returns -- ``replay_attribution`` hands back a comparison, not a measurement. Counting
+    at the client is the one place the number is observable without reaching inside a
+    function whose whole purpose is to rebuild the engine from the issuer's commitment.
+    """
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+        self.calls = 0
+
+    async def complete(self, body: dict) -> dict:
+        self.calls += 1
+        return await self.inner.complete(body)
 
 
 def _resume_point(last_event_id: str | None, after: int) -> int:

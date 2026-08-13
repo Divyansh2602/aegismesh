@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **372 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **393 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -93,7 +93,8 @@ nothing.
 | 4 — Adversarial evaluation | **Done** | `aegis/evaluation/{agentdojo,surrogate,phase4,theta}.py`, `aegis/audit/`, `aegis/provenance/monotonicity.py` |
 | 5a — Public API, endpoints | **Done** | `aegis/api/`, `aegis/log/storage.py`, `tests/test_api.py`, `tests/test_log_storage.py` |
 | 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
-| 6 — Console | **Next** | Next.js + TypeScript, responsive, interactive |
+| 6a — CORS, attack lab, replay | **Done** | `aegis/api/attacks.py`, `Run.evidence`, CORS, `POST /v1/runs/{id}/replay`, `tests/test_api_attacks.py` |
+| 6b — Console | **Next** | Next.js + TypeScript, responsive, interactive |
 | 7 — Ship it | Pending | containers, CI, hosting, the public launch |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
@@ -630,6 +631,77 @@ bare 429 is a workaround for it.
 
 ---
 
+## Phase 6a — what the console needs that Phase 5 did not build
+
+**Definition of done, met:** a browser on another origin can reach the API, drive the four
+Phase 3 attack scenes, and ask an auditor to re-measure a warrant's own numbers.
+
+Written because "Phase 6 is a frontend" turned out to be false. Three of the six screens
+depended on backend that did not exist, and building the console first would have meant
+building it against endpoints invented to suit it.
+
+| Built | Why it was not optional |
+| --- | --- |
+| CORS, allowlisted, credentials off | There was none. Every screen was unreachable from a browser — not a styling problem, a total blocker |
+| `aegis/api/attacks.py` | Screen 5's scenes lived only in `demo/phase3_demo.py`. The attack lab is backend work |
+| `POST /v1/runs/{id}/replay` | `audit/replay.py` existed since Phase 4 with nothing serving it. Screen 6 needs the verdict |
+| `Run.evidence` | Attacks re-issue and replay re-measures; both need the live trace and `AttributionResult`, not the serialized stage |
+
+### Decisions worth defending
+
+- **`fork_log` never touches the shared log, and the ordering is a cost decision.** Every
+  visitor's receipt is checked against a root derived from the shared log, so genuinely
+  forking it would invalidate proofs already handed to people who are not attacking
+  anything. The demo builds a shadow history as long as the real one; that is O(n) appends
+  at O(n) each. Instead a fresh witness accepts a *short* doctored history first and is
+  then shown the real log's head, which cannot extend it. Same `ForkDetected`, same
+  conclusion — two authentically signed heads under one key — at O(n) instead of O(n²).
+- **The attack lab is bounded by the same controls as a run.** Attacks and replays pass the
+  arrival limiter, and replay also passes the session budget and the concurrency semaphore.
+  Replay is a *second* full attribution, so unbudgeted it would be the cheapest denial of
+  service on the surface: unlimited model calls under a different route name. Its calls are
+  counted by wrapping the client, in a `finally`, so a failure halfway still bills.
+- **The client is wrapped rather than the engine injected.** `replay_attribution` rebuilds
+  its engine from the warrant's own `replay_ref`; letting the API hand in a pre-built engine
+  would replay under the API's settings while reporting a verdict about the issuer's — the
+  exact failure `audit/replay.py` refuses to commit when the commitment is incomplete.
+- **CORS is an allowlist even though a wildcard is defensible today.** Sessions travel in a
+  header, so nothing is attached automatically and a wildcard would add no server-side
+  exposure now. The reason it is still not the default: that safety rests on a property one
+  commit away from changing. The day anyone adds a cookie, a wildcard becomes a real hole
+  and an allowlist stays correct.
+- **CORS sits outside the size middleware.** A preflight carries no body and must not be
+  size-checked, and a 413 returned without CORS headers is an opaque network error in the
+  console — turning the design's most deliberate response, the refusal that names its own
+  control, into a browser-level failure with no body. `test_a_refused_request_is_still_readable_by_the_browser`
+  pins the ordering.
+
+### The bug worth remembering, and it is design decision 6 from the attacker's side
+
+`tamper_attribution` picks a field and rewrites its causation to `P0 1.0000` — the operator
+blaming the human. The first implementation picked whichever attributed field sorted first.
+On the poisoned scenario that is **`amount`**, which the human genuinely set and which
+already read `P0 1.0000`. The attack rewrote a value to itself: the bytes never changed, the
+signature verified correctly, and the endpoint reported a successful defence that had not
+happened. `failed_steps` came back `[6, 10]` with step 3 passing, which is what exposed it.
+
+The general form is the project's own central finding pointed inward: *one action is
+legitimate in one field and hijacked in another*, so "the attributed field" is not a
+well-defined thing to whitewash. Selection now prefers a field the measurement blamed on
+untrusted content and skips any field already equal to the target, and
+`test_the_tampered_field_is_one_the_measurement_actually_blamed_elsewhere` pins it.
+
+### `EventSource` is unusable here — the console must use `fetch`
+
+`GET /v1/runs/{id}/events` requires `X-Aegis-Session`, and the browser's `EventSource` API
+cannot send custom headers. The Phase 5b note that `EventSource` supplies `Last-Event-ID`
+automatically is accurate and unreachable. The console consumes the stream with `fetch` +
+`ReadableStream` and resumes with `?after=`, which the endpoint already supports. No backend
+change — but it decides how the frontend is written, so it is recorded rather than
+rediscovered.
+
+---
+
 ## Phase 6 — the console
 
 **Goal:** the frontend Divyansh described — full, interactive, responsive, legitimate.
@@ -679,6 +751,23 @@ on Railway or Fly.
 4. Health checks, structured logs, an error page that does not leak stack traces.
    `GET /health` exists and reports tree size, durability and the model label.
 5. Custom domain, and the demo URL at the top of the README.
+6. **The log's append cost is quadratic in its size, and the log now survives restarts.**
+   Measured 2026-08-13, not inferred: building a tree of *n* leaves takes 22.6 ms at
+   n=100, 1.53 s at n=1 000, 36.7 s at n=5 000, 727 s at n=20 000 — 4× the leaves for
+   19.8× the time, which is n². `root()` rehashes the whole leaf list and `append` walks
+   the tree three times (`root()` twice, plus `inclusion_proof`), so **one append at
+   n=20 000 costs ~73 ms** and ~365 ms at n=100 000. `signed_tree_head()` on its own stays
+   cheap (19 ms at n=20 000).
+
+   **This is not a bug and should not be "fixed" casually.** The Merkle log was
+   hand-written so the tamper-evidence claim reduces to functions a reviewer can read, and
+   recomputing the root from the leaves is the most readable form of it. What is new is
+   that Phase 5a made the log durable and shared, so *n* now grows for the life of the
+   deployment instead of resetting. The honest options, in order of preference: cache the
+   root and maintain the frontier incrementally (keeps the readable functions as the
+   test oracle, which is the point of having them); or accept it and state the tree size
+   at which the service is retired. Do not discover this in production — a public site
+   whose selling point is the log getting longer has a cost curve pointed the wrong way.
 
 ---
 

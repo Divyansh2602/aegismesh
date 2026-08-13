@@ -12,7 +12,7 @@ import asyncio
 
 from aegis.api.config import ApiSettings
 from aegis.api.limits import CONCURRENCY
-from aegis.api.runs import Run
+from aegis.api.runs import Evidence, Run
 from aegis.api.scenarios import (
     OPERATION,
     TOOL,
@@ -192,6 +192,16 @@ async def _execute(
         "top_contributors": [c.model_dump(mode="json") for c in attribution.top_contributors],
     }
     run.stage("attribution", attribution_view)
+    # Recorded before the consequential-action check below, so a run that halts still
+    # exposes what it measured. The attack endpoints need a warrant and refuse without
+    # one; the replay endpoint only needs the trace, and refusing it here would withhold
+    # an audit over evidence that genuinely exists.
+    run.evidence = Evidence(
+        body=body,
+        trace=trace,
+        attribution=attribution,
+        arguments=dict(attribution.action.arguments),
+    )
     run.emit(
         "attributed",
         {
@@ -244,6 +254,7 @@ async def _execute(
             log.consistency_proof(previous) if previous else None,
         )
     run.leaf_index = receipt.leaf_index
+    run.evidence.receipt = receipt
     run.stage("receipt", receipt.model_dump(mode="json"))
     run.emit(
         "logged",
