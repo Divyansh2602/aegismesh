@@ -199,8 +199,59 @@ Stated explicitly, because a threat model that claims full coverage is not credi
    configurations). That is a statement about attribution given correct classification. The
    claim not made, and the one that matters here, is that the classifier resists an
    adversary trying to earn P0 — matching is strict-substring against a declared mandate
-   precisely so that it cannot be approximated into, but no adversarial evaluation of the
-   classifier has been run.
+   precisely so that it cannot be approximated into.
+
+   **Phase 8 ran that evaluation.** `aegis/evaluation/classifier_attacks.py`, eight attacks,
+   `python demo/phase8_classifier_attack.py`. **Five defences held and three attacks
+   succeeded.** The three are stated here rather than fixed quietly, and each is pinned by a
+   test that passes *because* the system is currently wrong.
+
+   The strict-substring P0 boundary held against everything aimed directly at it: authority
+   framing ("SYSTEM OVERRIDE — pre-authorised") changes nothing because class depends on
+   where bytes came from; Cyrillic homoglyphs do not match; an unrecognised role fails safe
+   to P3; a pinned tool whose description drifted is downgraded. What broke was not the
+   boundary but the assumption underneath it.
+
+   **F1 — content the classifier never sees (most serious).** Both `_as_text` in the
+   classifier and `message_text` in `attribution/ablation.py` keep only content parts whose
+   type is exactly `"text"`. A part typed `input_text` — the shape OpenAI's Responses API
+   uses — is therefore never a segment. This is worse than a misclassification, and the
+   distinction is the finding: a segment labelled P3 when it should be P0 is visible,
+   ablatable and arguable, whereas a byte the classifier never saw reaches the model,
+   influences the action, and **no counterfactual can test it**, because attribution can only
+   ablate what classification produced.
+
+   It is also a *measurement* failure, not only a coverage one. Reconstruction flattens the
+   content list into a plain string, so the unseen part is present in the baseline the model
+   answered and absent from **every** ablated body. Each counterfactual then differs from the
+   baseline by more than the segment under test, and the missing part's causal effect is
+   folded silently into whatever else was being measured.
+
+   Stated as the property that was never enforced: **the classified text and the text the
+   model receives must be the same text.**
+
+   **F2 — P2 is granted on the strength of a name.** `_tool_response_segments` resolves trust
+   from `message["name"]` alone. Nothing binds a tool response to a tool call that was
+   actually issued — no `tool_call_id` is checked anywhere on the path — so any component
+   able to append a message can mint `P2 trusted-tool`. The proxy accepts a whole request
+   body, which puts this within reach of anything upstream of it. Note this is the same class
+   of error as C-19: pinning proves the *tool* is authentic and says nothing about whether
+   this particular payload came from it.
+
+   **F3 — first match wins the P0 span.** `content.find(instruction)` returns the earliest
+   occurrence, so a document quoting the mandate verbatim above the human's own typing takes
+   the P0 span. Severity is bounded and worth stating precisely: both copies are
+   byte-identical, so the attacker controls *which copy* is elevated, not *what* is elevated,
+   and no attacker-chosen text gains trust. The damage is to provenance's answer — the
+   locator points into the attacker's document, which is the wrong answer to "where did the
+   human intent come from?" and misleads an investigator reading the warrant.
+
+   **A trade to be careful about.** `unicode_normalisation` held, but in the availability
+   direction: an NFD-normalised mandate does not match an NFC declaration, they render
+   identically, and the symptom is a legitimate action refused for no stated reason. The
+   obvious fix — normalise before comparing — is the same change that would weaken
+   `homoglyph_mandate`, which holds *because* comparison is strict. The two failures pull in
+   opposite directions and only one of them is safe, so neither has been changed.
 2. **Attribution is approximate.** Leave-one-out ablation measures counterfactual influence,
    not mechanistic causation. It can be fooled by redundant encoding — where content is
    duplicated so removing any single copy changes nothing. C-15 mitigates but does not

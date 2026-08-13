@@ -29,7 +29,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **675 tests pass and 1 skips, ruff clean, all four demos exit 0, and the
+Expected: **685 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -988,8 +988,39 @@ Unchanged in substance, moved back by the three phases above.
   `HttpModelClient`; it needs a key and a budget. Single biggest credibility upgrade to every
   number in `results/`. Run it offline and publish the numbers; do not wire it into the
   public site.
-- **Classifier adversarial evaluation** (residual risk 1) — Phase 4 measured attribution
-  *given* correct classification. Nobody has attacked the P0 boundary.
+- ~~**Classifier adversarial evaluation** (residual risk 1)~~ **Done 2026-08-13.**
+  `aegis/evaluation/classifier_attacks.py`, `demo/phase8_classifier_attack.py`,
+  `tests/test_classifier_attacks.py`. Eight attacks, **five held and three succeeded**.
+
+  The strict-substring P0 boundary held against everything aimed at it — authority framing,
+  Cyrillic homoglyphs, unknown roles, tool-description drift. What broke was the assumption
+  underneath it, and the most serious finding is not a misclassification at all:
+
+  **F1 — content the classifier never sees.** `_as_text` (classifier) and `message_text`
+  (`attribution/ablation.py`) both keep only content parts typed exactly `"text"`. A part
+  typed `input_text` — OpenAI's Responses API shape — is never a segment, so **no
+  counterfactual can test it**, because attribution can only ablate what classification
+  produced. Worse, reconstruction flattens the list to a string, so the unseen part is in
+  the baseline and absent from *every* ablated body: each counterfactual differs from the
+  baseline by more than the segment under test and the missing part's effect is folded
+  silently into the others. The property nothing enforced: **the classified text and the
+  text the model receives must be the same text.**
+
+  **F2 — P2 from a name alone.** Tool responses are trusted on `message["name"]`; nothing
+  binds one to a `tool_call` that was actually issued. Same class of error as C-19 — pinning
+  proves the *tool* is authentic and says nothing about this payload.
+
+  **F3 — first match wins the P0 span.** A document quoting the mandate above the human's
+  typing takes P0. Bounded honestly: both copies are byte-identical, so the attacker chooses
+  *which copy* is elevated, not *what* — the damage is to provenance's answer, not the trust
+  boundary.
+
+  **Not fixed, deliberately.** F1's fix touches the classifier and the ablation
+  reconstruction together, and F2's would downgrade every current scenario's `ledger_lookup`
+  to P3 because none of the demos issue a preceding `tool_call` — that is a real behavioural
+  change to every measured number and wants its own phase. `unicode_normalisation` held only
+  in the availability direction, and normalising to fix it is the same change that would
+  break `homoglyph_mandate`; the two pull opposite ways and only one is safe.
 - Paper, patent decision (see the licence note — Apache-2.0 §3 already grants users a patent
   licence over claims this code necessarily infringes), standards engagement.
 

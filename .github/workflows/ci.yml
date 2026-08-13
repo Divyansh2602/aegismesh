@@ -62,6 +62,10 @@ jobs:
           python demo/phase2_eval.py
           python demo/phase3_demo.py
           python demo/phase4_attack.py
+          # Exits non-zero if a *control*-class classifier attack starts succeeding, which
+          # would be a regression in the trust boundary itself. The three known findings
+          # are expected and do not fail it.
+          python demo/phase8_classifier_attack.py
 
       - name: Standalone verifier
         # The claim this project exists to make, checked the way a stranger would check it.

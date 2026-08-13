@@ -127,7 +127,7 @@ signal away.
 | 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
-673 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
+685 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
 model: no API key, no cost.
 
 ```bash
@@ -255,6 +255,28 @@ its proxy. Without it every visitor shares one rate-limit bucket and the first b
 locks everyone out. It stays off by default everywhere else, because honouring
 `X-Forwarded-For` when you are not behind a proxy you control lets a caller pick its own
 bucket — worse than having no limiter, because it looks like one.
+
+## Attacking the classifier
+
+`python demo/phase8_classifier_attack.py` — eight attacks on the trust boundary itself.
+**Five defences held, three attacks succeeded**, and the three are documented in
+[`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §6 rather than fixed quietly.
+
+Phase 4 measured attribution *given correct classification* and said so. This closes that
+gap. The strict-substring P0 boundary turned away everything aimed straight at it — content
+claiming to be a pre-authorised system policy update, Cyrillic homoglyphs of the mandate, an
+unrecognised role, a pinned tool whose description had drifted. What broke was the
+assumption underneath it, and the sharpest finding is not a misclassification:
+
+> A content part typed `input_text` rather than `text` is never classified at all — so **no
+> counterfactual can test it**, because attribution can only ablate what classification
+> produced. It is in the baseline the model answered and absent from every ablated body, so
+> its causal effect is folded silently into every other segment's measurement. A segment
+> labelled P3 when it should be P0 is visible and arguable; a byte the classifier never saw
+> is neither.
+
+The property that was never enforced, now stated: *the classified text and the text the
+model receives must be the same text.*
 
 ## Attacking our own design
 
