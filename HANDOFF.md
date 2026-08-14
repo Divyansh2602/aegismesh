@@ -28,12 +28,17 @@ debugging your own change or something that was already broken.
 ## Verify the state in one command
 
 ```bash
-pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
+pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **702 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
+Expected: **706 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
+
+"Five demos" is the five this command runs, which is not everything in `demo/`.
+`demo/phase4_eval.py` is the sixth and is excluded here and from CI: it needs the
+`[agentdojo]` extra and takes minutes, so its numbers are committed to `results/` instead
+and a change that breaks it will not be caught by either.
 
 The API is exercised by `tests/test_api.py` through an in-process ASGI transport, so it is
 covered by the command above. To drive it over a real socket:
@@ -849,7 +854,7 @@ Divyansh's Render and Vercel accounts, which is why it stops here rather than be
 
 | Built | Verified how |
 | --- | --- |
-| `.github/workflows/ci.yml` | ruff, pytest, all four demos and the standalone verifier, on Python 3.11 and 3.13, plus console lint and build. **Not yet observed green on GitHub** — first push runs it |
+| `.github/workflows/ci.yml` | ruff, pytest, five of the six `demo/` scripts and the standalone verifier, on Python 3.11 and 3.13, plus console lint and build. **Observed green on GitHub.** `demo/phase4_eval.py` is excluded: it needs the `[agentdojo]` extra and minutes of runtime, so breaking it still shows a green check |
 | `Dockerfile` + `.dockerignore` | Image built, container run, `whoami` → `aegis` (non-root), poisoned run returned REJECT, and the durable log **survived `docker restart` with a byte-identical root** |
 | `render.yaml` | Blueprint with the disk, health check, generated log seed, and `trust_forwarded_for` |
 | `web/.env.example` | The one variable the console needs |
@@ -922,8 +927,15 @@ after each step, and a table of the six ways this goes wrong. Summarised here so
 stays self-contained:
 
 1. **Render → New Blueprint** → point at this repo. Confirm the Starter plan and the 1 GB
-   disk at `/data`. Verify `/health` reports `log_durable: true` before continuing; if it
-   does not, the disk did not attach and every later step assumes it did.
+   disk at `/data`. The apply flow **prompts for `AEGIS_API_CORS_ORIGINS`** two steps before
+   you can know it (it is `sync: false`); enter a placeholder and correct it in step 3.
+
+   Then verify durability *by restarting the service*. `log_durable` is an `isinstance`
+   check and is true whenever a path is configured, including on a container with no volume
+   — gating on it passes in exactly the case worth catching. Read
+   `log_persistence` in `/health` instead: `boots` is a counter written into the database
+   file, so `proven: true` after a restart means the file genuinely outlived a process. If
+   `boots` is still 1 after a restart, the disk is not attached.
 2. **Vercel → import**, **root directory `web`** (the build fails without it), set
    `NEXT_PUBLIC_AEGIS_API` to the Render URL.
 3. **Set `AEGIS_API_CORS_ORIGINS`** on Render to the Vercel origin, exact, no trailing

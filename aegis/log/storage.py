@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
 
@@ -83,7 +84,11 @@ class SqliteLogStorage:
             idx   INTEGER PRIMARY KEY,
             entry BLOB NOT NULL,
             leaf  BLOB NOT NULL
-        )
+        );
+        CREATE TABLE IF NOT EXISTS boots (
+            n          INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL
+        );
     """
 
     def __init__(self, path: str | Path) -> None:
@@ -97,7 +102,30 @@ class SqliteLogStorage:
         self._lock = threading.Lock()
         self._connection.execute("PRAGMA journal_mode=WAL")
         with self._connection:
-            self._connection.execute(self._SCHEMA)
+            self._connection.executescript(self._SCHEMA)
+        self.boots = self._record_boot()
+
+    def _record_boot(self) -> int:
+        """Count process starts that have shared this file, and return the count.
+
+        This exists because *configuring* durable storage and *having* it are different
+        facts, and until now only the first was observable. ``/health`` reported
+        ``log_durable: true`` whenever a database path was set — on a container with no
+        volume behind that path, that is true and useless: SQLite works perfectly, and the
+        file disappears on the next restart.
+
+        A counter in the file itself is the only portable evidence that survives the thing
+        it is measuring. ``boots == 1`` means nothing has been proven yet; ``boots > 1``
+        means this file outlived a process, which is exactly the property a deployer needs
+        to confirm before believing the log is durable. Nothing infers it from mount points
+        or paths, because those are configuration again.
+        """
+        with self._lock, self._connection:
+            cursor = self._connection.execute(
+                "INSERT INTO boots (started_at) VALUES (?)",
+                (datetime.now(UTC).isoformat(),),
+            )
+            return int(cursor.lastrowid or 1)
 
     def load(self) -> list[bytes]:
         rows = self._connection.execute(

@@ -140,3 +140,52 @@ class TestCorruptionIsDetectedAndTamperingIsNot:
         reopened = TransparencyLog(LOG_ID, log_key, storage=SqliteLogStorage(path))
         assert reopened.tree_size == 1  # storage saw nothing wrong
         assert reopened.root() != original_root  # the root is what gives it away
+
+
+class TestPersistenceIsProvenRatherThanAssumed:
+    """`log_durable` answered the wrong question, and this is the fix.
+
+    It was an `isinstance` check on the storage object, so it was true whenever a database
+    path had been set. On a container with no volume behind that path that is both true and
+    useless: SQLite works perfectly and the file vanishes on the next restart. A deploy
+    runbook gating on it would pass in exactly the case it existed to catch.
+
+    A counter written into the file is the only portable evidence that survives the thing it
+    measures.
+    """
+
+    def test_a_fresh_file_reports_one_boot_and_proves_nothing(self, tmp_path, log_key):
+        storage = SqliteLogStorage(tmp_path / "log.sqlite3")
+        assert storage.boots == 1
+        storage.close()
+
+    def test_reopening_the_same_file_increments_the_count(self, tmp_path, log_key):
+        path = tmp_path / "log.sqlite3"
+        first = SqliteLogStorage(path)
+        first.close()
+        second = SqliteLogStorage(path)
+        assert second.boots == 2
+        second.close()
+
+    def test_a_different_file_starts_over(self, tmp_path, log_key):
+        """The counter must describe *this* file, not the process. A path change is a new
+        history, and reporting a carried-over count would assert continuity that is not
+        there."""
+        SqliteLogStorage(tmp_path / "a.sqlite3").close()
+        SqliteLogStorage(tmp_path / "a.sqlite3").close()
+        assert SqliteLogStorage(tmp_path / "b.sqlite3").boots == 1
+
+    def test_the_count_survives_alongside_the_entries(self, tmp_path, log_key):
+        """The two facts a deployer checks together: the file was reused *and* the tree did
+        not shrink. Either alone can mislead."""
+        path = tmp_path / "log.sqlite3"
+        log = TransparencyLog(LOG_ID, log_key, storage=SqliteLogStorage(path))
+        log.append(document(0))
+        log.append(document(1))
+        root_before, size_before = log.root(), log.tree_size
+        log.storage.close()
+
+        reopened = TransparencyLog(LOG_ID, log_key, storage=SqliteLogStorage(path))
+        assert reopened.storage.boots == 2
+        assert reopened.tree_size == size_before
+        assert reopened.root() == root_before

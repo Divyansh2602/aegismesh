@@ -344,6 +344,10 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
             "model": runner.MODEL_LABEL,
             "log_tree_size": log.tree_size,
             "log_durable": _durable(log),
+            # Reported beside `log_durable` because that field answers "was durable storage
+            # configured?" and a deployer needs "does it actually persist?", which only
+            # this can answer. See `_persistence`.
+            "log_persistence": _persistence(log),
             "sessions": len(request.app.state.sessions),
         }
 
@@ -809,7 +813,54 @@ async def _event_stream(
 
 
 def _durable(log: TransparencyLog) -> bool:
+    """Whether durable storage is *configured*. Not whether it works.
+
+    Deliberately narrow, and named honestly in the response by being reported alongside
+    ``log_persistence`` rather than alone. This is an ``isinstance`` check: it is true
+    whenever a database path was set, which on a container with no volume behind that path
+    is both true and useless — SQLite works perfectly and the file vanishes on restart.
+
+    A deploy runbook that gated on this field alone would pass in exactly the case it
+    existed to catch, which is what happened before ``storage.boots`` existed.
+    """
     return isinstance(log.storage, SqliteLogStorage)
+
+
+def _persistence(log: TransparencyLog) -> dict:
+    """Evidence that the log file has actually outlived a process.
+
+    ``configured`` is what the operator asked for; ``proven`` is what the file can
+    demonstrate. They differ on precisely the deployment that silently loses history, so
+    they are reported separately and the response says what would settle it.
+    """
+    storage = log.storage
+    if not isinstance(storage, SqliteLogStorage):
+        return {
+            "configured": False,
+            "proven": False,
+            "boots": None,
+            "note": (
+                "In-memory log: history resets when this process does. Set "
+                "AEGIS_API_LOG_DATABASE to a path on a volume that survives a restart."
+            ),
+        }
+
+    boots = storage.boots
+    return {
+        "configured": True,
+        # One boot proves nothing: a first start looks identical on a real volume and on
+        # ephemeral container storage. Two proves the file outlived a process.
+        "proven": boots > 1,
+        "boots": boots,
+        "note": (
+            "This file has been opened by more than one process start, so it survives "
+            "restarts."
+            if boots > 1
+            else "First start against this file. Restart the service and check that "
+            "boots increments and log_tree_size does not fall -- until then durability "
+            "is configured but unproven."
+        ),
+    }
 
 
 def _json_entry(log: TransparencyLog, index: int) -> dict:

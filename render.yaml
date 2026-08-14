@@ -9,10 +9,15 @@
 # convincing artifact this project has.
 #
 # Persistent disks require a paid instance (`starter`) plus $0.25/GB/month for the disk.
-# If that is not wanted yet, delete the `disk:` block *and* the AEGIS_API_LOG_DATABASE
-# variable together. Leaving the variable set without a disk is the worst of both: the log
-# writes to a path that vanishes, and `/health` reports `log_durable: true` while the
-# history silently restarts.
+# If that is not wanted yet, **three things change together**: `plan: starter` -> `plan:
+# free`, delete the `disk:` block, and delete the AEGIS_API_LOG_DATABASE variable. Deleting
+# only the disk leaves a paid instance with no disk, which is the worst of both.
+#
+# Leaving the variable set without a disk is the specific combination to avoid: the log
+# writes to a path that vanishes, and `log_durable` reports `true` because it only checks
+# that a path was configured. `log_persistence` in /health is the field that tells them
+# apart -- it carries a boot counter written into the database file, so `proven: true`
+# means the file has genuinely outlived a process. See docs/DEPLOY.md step 1.
 services:
   - type: web
     name: aegis-api

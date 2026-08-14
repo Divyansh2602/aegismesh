@@ -5,8 +5,8 @@
 > An agent action without a warrant is an unsigned transaction.
 > AegisMesh makes agents prove *why*, not just *who*.
 
-![phase](https://img.shields.io/badge/phase-5%20of%208%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-372%20passing-2ea44f)
+![phase](https://img.shields.io/badge/phase-7%20of%208%20complete-2ea44f)
+![tests](https://img.shields.io/badge/tests-706%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -217,8 +217,10 @@ poisoned ones mean anything.
 
 **Full runbook with verification at each step: [`docs/DEPLOY.md`](docs/DEPLOY.md).**
 
-CI runs `ruff`, the test suite, all five demos and the standalone verifier on every push, on
-Python 3.11 and 3.13, plus lint and build for the console.
+CI runs `ruff`, the test suite, five of the six `demo/` scripts and the standalone verifier
+on every push, on Python 3.11 and 3.13, plus lint and build for the console.
+`demo/phase4_eval.py` is excluded — it needs the optional `[agentdojo]` extra and minutes of
+runtime, so its results are committed to `results/` and breaking it still shows green.
 
 **API — Render.** [`render.yaml`](render.yaml) is a Blueprint: point Render at this repo and
 it builds [`Dockerfile`](Dockerfile) and mounts a disk for the log.
@@ -227,10 +229,15 @@ it builds [`Dockerfile`](Dockerfile) and mounts a disk for the log.
 > filesystem and sleep when idle, so on a free plan the transparency log resets on every
 > wake — which destroys the one property a returning visitor can test personally, that the
 > tree grew between two visits and still verifies against the head they were given. Disks
-> need a paid instance plus $0.25/GB/month. To run without one, delete the `disk:` block
-> **and** `AEGIS_API_LOG_DATABASE` together; setting the path with no disk behind it is the
-> worst case, because `/health` then reports `log_durable: true` while the history silently
-> restarts.
+> need a paid instance plus $0.25/GB/month.
+>
+> To run without one, **three things change together**: `plan: starter` → `plan: free`,
+> delete the `disk:` block, and delete `AEGIS_API_LOG_DATABASE`. Deleting only the disk
+> leaves a paid instance with no disk. Leaving the path set with no disk behind it is the
+> combination to avoid: `log_durable` reports `true` because it only checks that a path was
+> configured. **`log_persistence` is the field that answers the real question** — it carries
+> a boot counter written into the database file, so `proven: true` means the file has
+> outlived a process rather than merely been configured.
 
 `AEGIS_API_LOG_SEED` is generated once by Render and kept stable, which is the actual
 requirement: it must be secret *and* unchanging, because a log whose signing key changes is a
