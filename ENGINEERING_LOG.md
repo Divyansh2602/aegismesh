@@ -30,7 +30,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json   && python tools/verify_consistency.py        results/phase3_head_at_issue.json results/phase3_consistency.json results/phase3_trust_anchors.json
 ```
 
-Expected: **751 tests pass and 1 skips, ruff clean, all five demos exit 0, the standalone
+Expected: **756 tests pass and 1 skips, ruff clean, all five demos exit 0, the standalone
 verifier reports 6/6 checks passed and the consistency verifier reports 6/6.** Everything
 above runs offline — no API key, no cost. If that holds, nothing has rotted.
 
@@ -1272,9 +1272,14 @@ Still open:
    classes, which still looks like a false-positive generator waiting for a real workload.
 8. Sentence-level ablations still do not feed `per_argument`. Spans now do; the same
    argument does not extend to sentences, which have no field to attribute to.
-9. **New.** Every Phase 4 number is measured against the surrogate. The adapter runs
-   unchanged against `HttpModelClient` — this needs a key and a budget, and it is the
-   biggest single credibility upgrade available.
+9. **Partly answered.** Every Phase 4 number is still measured against the surrogate, but
+   the blocker was never a key and a budget — a local endpoint costs neither. It was ground
+   truth: class accuracy replays the surrogate's own selection rule, and a real model has
+   none, so pointing the sweep at one deletes the thing that made the numbers meaningful.
+   `evaluation/groundtruth.py` supplies the model-agnostic derivation and measures its cost
+   (never contradicts the exact rule; resolves 3 of 14 fields, concentrated on hijacked
+   ones). `results/real_model_eval.json` has the first real measurements. The AgentDojo
+   sweep against a real model is still open.
 10. **New.** 58 of 629 pairs are usable. A subset selected by what the method can measure is
     a subset selected by the method.
 11. **New.** The gate's read-verb branch is the only place it fails open, and narrowing it

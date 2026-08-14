@@ -7,10 +7,10 @@
     "VerifiableCredential",
     "ActionWarrant"
   ],
-  "id": "urn:uuid:8d9d0ee2-7e3c-4378-9ccc-5c2ca8299f17",
+  "id": "urn:uuid:8a2de0c5-1e14-471f-a92d-283cebedc142",
   "issuer": "did:web:aegis.acme-bank.example",
-  "validFrom": "2026-08-14T10:12:55Z",
-  "validUntil": "2026-08-14T10:17:55Z",
+  "validFrom": "2026-08-14T17:29:40Z",
+  "validUntil": "2026-08-14T17:34:40Z",
   "credentialSubject": {
     "action": {
       "tool": "treasury.payments",
@@ -21,13 +21,13 @@
         "currency": "sha256:82bb059ec10744f31e0406b8ef7a7a0f3c30c9b18435120fa859b2c0b9627888",
         "destination_account": "sha256:bb9de458269ce97465dedc82d5ff17d3699dd80ffb474fe62abf6bb72f1d2724"
       },
-      "nonce": "nnc_01KZZW5AMMY853SSDRPVPNYJ2H",
+      "nonce": "nnc_01M00N5134GJ9PJBS5MFY9DB18",
       "consequential": true
     },
     "mandate": {
       "id": "mnd_01J8Y",
       "principal": "did:web:acme-bank.example:users:r.mehta",
-      "authenticated_at": "2026-08-14T09:56:55Z",
+      "authenticated_at": "2026-08-14T17:13:40Z",
       "auth_method": "oidc+mfa",
       "scope": {
         "action_classes": [
@@ -40,7 +40,7 @@
           ]
         }
       },
-      "expires_at": "2026-08-14T18:12:55Z"
+      "expires_at": "2026-08-15T01:29:40Z"
     },
     "delegation_chain": [
       {
@@ -108,7 +108,7 @@
       },
       "top_contributors": [
         {
-          "segment_id": "seg_01KZZW5AMHYBJH61RKJWBJW27G",
+          "segment_id": "seg_01M00N512Z6H4TRRMPMG0F46T0",
           "class": "P3",
           "origin": "mcp://vendor.example/invoice_reader",
           "influence": "1.0000",
@@ -116,7 +116,7 @@
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZZW5AMHYBJH61RKJWBJW27G",
+          "segment_id": "seg_01M00N512Z6H4TRRMPMG0F46T0",
           "class": "P3",
           "origin": "mcp://vendor.example/invoice_reader",
           "influence": "1.0000",
@@ -124,21 +124,21 @@
           "granularity": "sentence"
         },
         {
-          "segment_id": "seg_01KZZW5AMHNDA49WX5RMZKDJCG",
+          "segment_id": "seg_01M00N512ZF2T8RAVD0P2PSAYB",
           "class": "P0",
           "influence": "1.0000",
           "excerpt_hash": "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZZW5AMG5KF0Q0NYEBSGDS6J",
+          "segment_id": "seg_01M00N512ZHBJAVG7P6ZYVT8TH",
           "class": "P1",
           "influence": "0.0000",
           "excerpt_hash": "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
           "granularity": "segment"
         },
         {
-          "segment_id": "seg_01KZZW5AMHM7BFEDKFGPJ0ESZB",
+          "segment_id": "seg_01M00N512ZTR8SPY2AZ13XM5P7",
           "class": "P3",
           "influence": "0.0000",
           "excerpt_hash": "sha256:97bdf732bd599b9deb4d91e4380d5d8ffe203339db0a633c599dd3cd91ef3aa8",
@@ -147,7 +147,7 @@
       ],
       "confidence": "0.5693",
       "replay_ref": {
-        "trace_hash": "sha256:c57892eaf8476d065367c040b3ff78846fbff7e911d9873973e0807e7fa89c7b",
+        "trace_hash": "sha256:af04aea1682709d742f2b6b0297d212e1622380ba59af5b51c4e191394a69433",
         "segment_hashes": [
           "sha256:af05ef7d0f103a87901e87713b24e2b1b79c0f15200463690cc09dab71fe6264",
           "sha256:e32d439683656f3abd7441795d690e3a1d171655486536420ebcb2abc5b92838",
@@ -180,9 +180,9 @@
   "proof": {
     "type": "DataIntegrityProof",
     "cryptosuite": "eddsa-jcs-2022",
-    "created": "2026-08-14T10:12:55Z",
+    "created": "2026-08-14T17:29:40Z",
     "verificationMethod": "did:web:aegis.acme-bank.example#key-1",
     "proofPurpose": "assertionMethod",
-    "proofValue": "z5DwdWjrzGCvASmjqwqUx21JDm1xtdwHo5Fn46DCYiRYPsa71ZmAbjL8JuivqeYMvohNkMSoyFSwBtuYFm1WKa7Hp"
+    "proofValue": "z2HMdwPzuuaZw9cKngdzMFtBXUjykYw6ZxAeHqHPYR6TmnjgH3QwKKbwJYoVoHjXC6ZEAXtGGrVBLjaLRPeTzAHdi"
   }
 }

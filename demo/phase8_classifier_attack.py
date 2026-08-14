@@ -20,6 +20,18 @@ import sys
 
 from aegis.evaluation.classifier_attacks import AttackOutcome, run_attacks
 
+# This demo prints the attacks it ran, and two of them are *about* non-ASCII text -- Cyrillic
+# homoglyphs and an NFD-normalised mandate. On a Windows console, which defaults to cp1252,
+# printing them raises UnicodeEncodeError and the script dies partway through with a
+# traceback that looks like a failing security check rather than a terminal limitation.
+#
+# It matters more here than it would elsewhere: this script is in the verification command
+# the README hands to a stranger, so on Windows the documented way to check this repository
+# crashed. Reconfiguring is guarded because a stdout that has been redirected to a pipe may
+# not support it.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 #: Attacks whose failure is a finding we have written down rather than a regression. If one
 #: of these starts holding, a limitation was closed and the docs need updating — the demo
 #: says so rather than quietly turning green.

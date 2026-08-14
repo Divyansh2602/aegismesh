@@ -22,6 +22,8 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Request
@@ -368,6 +370,23 @@ def _router() -> APIRouter:  # noqa: C901 - one function per route, kept togethe
                 ),
             },
         }
+
+    @router.get("/v1/real-model")
+    async def real_model() -> dict:
+        """Committed measurements against real models, served as a record.
+
+        **Not a live run, and the distinction is the whole reason this is a separate
+        endpoint.** Everything else the API reports is produced by `aegis` executing right
+        now against the bundled surrogate. These numbers came from an offline sweep against
+        a local model and are read from a file. Serving them beside live results without
+        saying so would be exactly the "plausible-looking screen" the console refuses to
+        render, so the payload carries `live: false` and the console must show it.
+
+        There is deliberately no path from here to a real model at request time: it would
+        need a key, cost money per visitor, and make this service abusable as a free LLM
+        proxy. Publishing what was measured is the honest version of that.
+        """
+        return _real_model_record()
 
     @router.post("/v1/sessions", status_code=201)
     async def create_session(request: Request) -> dict:
@@ -810,6 +829,45 @@ async def _event_stream(
                     yield ": keepalive\n\n"
     finally:
         session.open_streams -= 1
+
+
+_RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results"
+
+
+@lru_cache(maxsize=1)
+def _real_model_record() -> dict:
+    """Read the committed real-model measurements once.
+
+    Cached because the file never changes for the life of the process -- it is baked into
+    the image -- and a per-request read would put disk I/O on a path a visitor can hammer.
+
+    A missing file is reported as "not measured" rather than raised. A fresh checkout that
+    has never run the sweep is an ordinary state, and the console needs to say "no real
+    model has been measured" rather than show an error that looks like a broken service.
+    """
+    path = _RESULTS_DIR / "real_model_eval.json"
+    note = (
+        "Offline measurement, not a live run. The public API only ever executes the "
+        "bundled deterministic surrogate; these numbers came from a local model on the "
+        "author's machine and are served from a committed file."
+    )
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"live": False, "measured": False, "models": {}, "note": note}
+
+    models = document.get("models")
+    if not isinstance(models, dict) or not models:
+        return {"live": False, "measured": False, "models": {}, "note": note}
+
+    return {
+        "live": False,
+        "measured": True,
+        "cases_run": document.get("cases_run"),
+        "surrogate_label": runner.MODEL_LABEL,
+        "models": models,
+        "note": note,
+    }
 
 
 def _durable(log: TransparencyLog) -> bool:

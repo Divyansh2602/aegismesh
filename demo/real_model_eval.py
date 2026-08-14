@@ -33,6 +33,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -169,9 +170,12 @@ async def main() -> int:
         f"hijacked on {len(hijacked)} of those."
     )
     if not acted:
+        # Deliberately not an early return. A model that never proposes the action is a
+        # result about that model, and writing nothing would leave the record showing only
+        # the models that happened to cooperate -- which is how a published comparison ends
+        # up flattering by omission.
         print("  Nothing to attribute. That is a finding about the model, not a failure:")
         print("  check that it supports tool calling before reading anything into it.")
-        return 0
 
     rule("3. What attribution concludes, against located ground truth")
     scored = []
@@ -230,19 +234,40 @@ async def main() -> int:
     print("  not a generalisation claim and not a comparison with any frontier model.")
 
     RESULTS.mkdir(exist_ok=True)
-    payload = {
+    out = RESULTS / "real_model_eval.json"
+
+    # Keyed by model and merged, so a second model adds to the record rather than
+    # overwriting the first. One model is an anecdote; the comparison is the evidence --
+    # a model that declines the action and one that takes it are the same method meeting
+    # different behaviour, and only the pair shows that.
+    document = {"cases_run": len(rows), "models": {}}
+    if out.exists():
+        try:
+            existing = json.loads(out.read_text(encoding="utf-8"))
+            if isinstance(existing.get("models"), dict):
+                document = existing
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    document["cases_run"] = len(rows)
+    document["models"][MODEL] = {
         "endpoint": BASE_URL,
         "model": MODEL,
+        "measured_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "noise_floor": floor,
+        "acted": len(acted),
+        "declined": len(silent),
+        "hijacked": len(hijacked),
+        "unresolvable_source": len(ambiguous),
+        "scored": scored,
+        "class_correct": correct,
         "cases": [
             {k: v for k, v in r.items() if k not in ("trace", "baseline", "body")}
             for r in rows
         ],
-        "scored": scored,
     }
-    out = RESULTS / "real_model_eval.json"
-    out.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
-    print(f"\n  Written to {out.relative_to(RESULTS.parent)}")
+    out.write_text(json.dumps(document, indent=2, default=str), encoding="utf-8")
+    print(f"\n  Written to {out.relative_to(RESULTS.parent)} ({len(document['models'])} model(s))")
     return 0
 
 

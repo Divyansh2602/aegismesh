@@ -16,6 +16,7 @@ import { AblationFeed } from "@/components/AblationFeed";
 import { AttackLab } from "@/components/AttackLab";
 import { AuditorView } from "@/components/AuditorView";
 import { Button } from "@/components/Button";
+import { RealModelPanel } from "@/components/RealModelPanel";
 import { ScenarioGrid } from "@/components/ScenarioGrid";
 import { ContextTrace } from "@/components/ContextTrace";
 import { EvidencePanel } from "@/components/EvidencePanel";
@@ -353,6 +354,14 @@ export default function Home() {
           <Reveal>
             <SectionRule>The whole case set</SectionRule>
             <ScenarioGrid session={session} />
+          </Reveal>
+
+          {/* Last on the page on purpose. It is the only panel not produced by the request
+              that drew it, so it follows everything a visitor can verify live rather than
+              sitting among those and borrowing their standing. */}
+          <Reveal>
+            <SectionRule>Beyond the surrogate</SectionRule>
+            <RealModelPanel />
           </Reveal>
         </section>
       </main>

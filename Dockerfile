@@ -37,6 +37,10 @@ RUN useradd --system --create-home --shell /usr/sbin/nologin aegis
 COPY --from=builder /install /usr/local
 COPY --chown=aegis:aegis aegis /app/aegis
 COPY --chown=aegis:aegis tools /app/tools
+# Committed measurements, served read-only by /v1/real-model. They are in the image rather
+# than duplicated into the frontend so the site and the repository cannot disagree about
+# what was measured -- the same reason the scenario catalogue is the evaluation case set.
+COPY --chown=aegis:aegis results /app/results
 
 # A mount point for the transparency log's database, created and owned by the runtime user
 # so a deployment that attaches a persistent disk here needs no further setup.

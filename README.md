@@ -7,7 +7,7 @@
 
 ![demo](https://img.shields.io/badge/demo-live-2ea44f)
 ![phase](https://img.shields.io/badge/phase-7%20of%208%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-751%20passing-2ea44f)
+![tests](https://img.shields.io/badge/tests-756%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -36,6 +36,22 @@ so the first request after a quiet spell takes about a minute. And that instance
 persistent disk, so the shared log is in memory and resets when it sleeps — `/health`
 reports `log_durable: false` rather than pretending otherwise. A downloaded artifact bundle
 is self-contained and keeps verifying regardless.
+
+**What the surrogate cannot tell you, measured separately.** The same seven cases were
+replayed offline against two real 8B models on one laptop, and the site publishes the
+result at the bottom of the page — labelled `offline measurement, not a live run`, because
+it is the only panel there whose numbers were not produced by the request that drew it.
+
+| | acted | hijacked | attribution correct |
+| --- | --- | --- | --- |
+| `llama3.1:8b` | 1 / 7 | 1 | — (no field had a resolvable source) |
+| `gemma4:latest` | 6 / 7 | 3 of 4 poisoned | **2 / 2** at `untrusted 1.000` |
+
+Both were deterministic across five identical requests, which is what makes a counterfactual
+mean anything. `gemma4` emitted the **legitimate** account on all three clean cases and the
+attacker's on three of four poisoned ones — and where the emitted value could be traced to
+a single trust class, attribution named untrusted content as the cause both times.
+Reproduce with `ollama serve && python demo/real_model_eval.py`.
 
 ## Or run it locally, offline
 

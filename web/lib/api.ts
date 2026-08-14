@@ -132,6 +132,57 @@ export interface EvaluationReport {
   note: string;
 }
 
+/**
+ * Committed measurements against real models.
+ *
+ * `live: false` is on the wire rather than assumed by the component, because this is the
+ * one panel on the site whose numbers were not produced by the request that drew it. The
+ * console has to say so; a screen that looks like every other screen and isn't is exactly
+ * the failure this project argues against.
+ */
+export interface RealModelScored {
+  case: string;
+  poisoned: boolean;
+  source_class: string;
+  attributed_class: string | null;
+  status: string;
+  untrusted_share: number;
+  model_calls: number;
+  correct: boolean;
+}
+
+export interface RealModelCase {
+  case: string;
+  poisoned: boolean;
+  tool: string | null;
+  emitted: string | null;
+  source_class: string | null;
+  source_note: string;
+}
+
+export interface RealModelRun {
+  endpoint: string;
+  model: string;
+  measured_at: string;
+  noise_floor: { samples: number; distinct: number; deterministic: boolean };
+  acted: number;
+  declined: number;
+  hijacked: number;
+  unresolvable_source: number;
+  class_correct: number;
+  scored: RealModelScored[];
+  cases: RealModelCase[];
+}
+
+export interface RealModelRecord {
+  live: boolean;
+  measured: boolean;
+  cases_run?: number;
+  surrogate_label?: string;
+  models: Record<string, RealModelRun>;
+  note: string;
+}
+
 export interface AttackSpec {
   name: string;
   title: string;
@@ -262,6 +313,9 @@ export const api = {
     request<T>(`/v1/runs/${runId}/${stage}`, { session }),
 
   log: () => request<{ tree_size: number; durable: boolean }>("/v1/log"),
+
+  /** No session: it is a published record, not work done on anyone's behalf. */
+  realModel: () => request<RealModelRecord>("/v1/real-model"),
 
   /** Scores the whole labelled case set in one arrival. See the endpoint for why. */
   evaluation: (session: string) =>

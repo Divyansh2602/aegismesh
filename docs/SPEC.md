@@ -733,10 +733,27 @@ Still open:
    reach, and the same argument does not extend to sentences: a span is bound to one field
    and a sentence is not, so folding sentences in would double-count a parent segment with
    nothing to attribute the count to.
-9. **New.** Every number in `results/phase4_agentdojo.json` is measured against a surrogate
-   whose susceptibility to injection is written down rather than discovered. The adapter
-   runs unchanged against `HttpModelClient`; what is missing is a key and a budget. Until
-   then nothing here says how often a real model falls for these injections.
+9. **Partly answered.** Every number in `results/phase4_agentdojo.json` is still measured
+   against a surrogate whose susceptibility is written down rather than discovered. What
+   was missing turned out not to be a key and a budget: a local OpenAI-compatible endpoint
+   costs neither. It was **ground truth**. Class accuracy is computed by replaying the
+   surrogate's own first-or-last selection rule, and a real model has no rule to replay, so
+   pointing the sweep at one silently removes the thing that made its numbers meaningful.
+
+   `evaluation/groundtruth.py` supplies the model-agnostic derivation — locate the emitted
+   value among the classified segments — and measures what it costs: on the labelled set it
+   never contradicts the exact rule but resolves only 3 of 14 fields, because a legitimate
+   value is typically restated by the mandate, the ledger *and* the invoice. Coverage is
+   therefore concentrated where the attack is, since an attacker's value has one source by
+   construction. **A real-model run can score "did untrusted content supply the field the
+   attack took" and cannot score the full class-accuracy matrix.**
+
+   `results/real_model_eval.json` carries the first measurements (`demo/real_model_eval.py`,
+   two local 8B models). Both were deterministic across five identical requests; one acted
+   on 1 of 7 cases and the other on 6, and on the two hijacked fields with a resolvable
+   source, attribution named untrusted content correctly. Seven hand-built cases against
+   consumer hardware is not the AgentDojo sweep, and the sweep against a real model remains
+   open.
 10. **New.** Only 58 of AgentDojo's 629 pairs are usable — the rest have no consequential
     action, no argument the surrogate models, or no hijackable argument. That subset is
     stated wherever the numbers are, but a subset selected by what the method can measure is

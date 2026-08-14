@@ -2,13 +2,13 @@
   "log_id": "did:web:log.aegismesh.example",
   "leaf_index": 0,
   "tree_size": 1,
-  "root_hash": "sha256:4b8e08e1fbdfe87621d9a9724b1514fb61b2d72d8a976d35f15d79b365151ece",
+  "root_hash": "sha256:8a42237f2a10a9d138aac0de5edf9131c0c32fd6b5f150da17bb3a0a25f74b77",
   "inclusion_proof": [],
   "signed_root": {
     "log_id": "did:web:log.aegismesh.example",
     "tree_size": 1,
-    "root_hash": "sha256:4b8e08e1fbdfe87621d9a9724b1514fb61b2d72d8a976d35f15d79b365151ece",
-    "timestamp": "2026-08-14T10:12:55Z",
-    "signature": "z6sg5w1JE2eZXeJiEsXFktMtDz4uYQ3vLQvpYKw2s985RES17MiuCHmCGDsqfEWWTCU63hKexgV5TaTRt3ee6q1M"
+    "root_hash": "sha256:8a42237f2a10a9d138aac0de5edf9131c0c32fd6b5f150da17bb3a0a25f74b77",
+    "timestamp": "2026-08-14T17:29:40Z",
+    "signature": "z3Rm5Jrs64BSk5fofUcyhGva8wgobvYvT4zSZyp8P2MmedvwCow2sZPCf39HaNeiSyYJYVNpAh7DBNFbAq1Huxkmf"
   }
 }

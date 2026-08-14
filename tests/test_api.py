@@ -379,3 +379,80 @@ class TestTheLogCanBeDurable:
             assert state["tree_size"] == size
             assert state["durable"] is True
         second_log.storage.close()
+
+
+class TestThePublishedRealModelRecord:
+    """``GET /v1/real-model`` serves committed measurements, and must not pretend they are live.
+
+    This is the only endpoint whose numbers were not produced by the request that asked for
+    them. Everything the console renders elsewhere came out of `aegis` executing moments
+    earlier; these came off disk. The whole risk of adding it is that it stops being obvious
+    which is which, so that is what these tests pin.
+    """
+
+    async def test_it_says_the_numbers_are_not_live(self, client):
+        response = await client.get("/v1/real-model")
+        assert response.status_code == 200
+        body = response.json()
+
+        assert body["live"] is False, (
+            "the console decides how to label this panel from `live`; defaulting it to "
+            "true, or omitting it, presents a recording as a measurement taken just now"
+        )
+        assert "not a live run" in body["note"]
+
+    async def test_it_needs_no_session(self, client):
+        """A published record is not work done on anyone's behalf, so it costs no budget."""
+        assert (await client.get("/v1/real-model")).status_code == 200
+
+    async def test_a_checkout_that_never_ran_the_sweep_reports_not_measured(
+        self, client, monkeypatch, tmp_path
+    ):
+        """The ordinary state of a fresh clone, and it must not look like a broken service.
+
+        `measured: false` lets the console omit the panel entirely. Raising here would put a
+        red error on a site whose only fault is that nobody has run an optional offline
+        measurement.
+        """
+        from aegis.api import app as app_module
+
+        app_module._real_model_record.cache_clear()
+        monkeypatch.setattr(app_module, "_RESULTS_DIR", tmp_path)
+        try:
+            body = (await client.get("/v1/real-model")).json()
+            assert body["measured"] is False
+            assert body["models"] == {}
+            assert body["live"] is False
+        finally:
+            app_module._real_model_record.cache_clear()
+
+    async def test_a_corrupt_results_file_is_reported_rather_than_raised(
+        self, client, monkeypatch, tmp_path
+    ):
+        """Half-written JSON is a plausible state; a 500 on the public site is not."""
+        from aegis.api import app as app_module
+
+        (tmp_path / "real_model_eval.json").write_text("{not json", encoding="utf-8")
+        app_module._real_model_record.cache_clear()
+        monkeypatch.setattr(app_module, "_RESULTS_DIR", tmp_path)
+        try:
+            response = await client.get("/v1/real-model")
+            assert response.status_code == 200
+            assert response.json()["measured"] is False
+        finally:
+            app_module._real_model_record.cache_clear()
+
+    async def test_the_public_api_never_calls_a_real_model(self, client):
+        """The rule this endpoint could quietly break.
+
+        Publishing measurements is the honest version of "we ran it against a real model".
+        Wiring a live call would need a key, cost money per visitor, and make the service a
+        free LLM proxy. The surrogate label is what every *live* response reports, and it
+        must still be the surrogate.
+        """
+        body = (await client.get("/v1/real-model")).json()
+        if body["measured"]:
+            assert "mock" in body["surrogate_label"].lower()
+
+        scenarios = (await client.get("/v1/scenarios")).json()
+        assert "mock" in scenarios["model"].lower()
