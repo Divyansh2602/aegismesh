@@ -7,7 +7,7 @@
 
 ![demo](https://img.shields.io/badge/demo-live-2ea44f)
 ![phase](https://img.shields.io/badge/phase-7%20of%208%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-710%20passing-2ea44f)
+![tests](https://img.shields.io/badge/tests-721%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -71,7 +71,8 @@ aegis/
   evaluation/   AgentDojo adapter, deterministic surrogate model, scoring, the theta sweep
   api/          the public HTTP surface: sessions, runs, the shared log, auditor downloads
 tools/
-  verify_warrant.py   standalone auditor: 2 public keys, 1 root hash, nothing else
+  verify_warrant.py      standalone auditor: 2 public keys, 1 root hash, nothing else
+  verify_consistency.py  is today's log the one you were shown before, extended?
 ```
 
 ---
@@ -193,6 +194,12 @@ invoice reader that control C-19 says stays untrusted. Then
 `GET /v1/runs/{id}/artifacts/{warrant,receipt,trust_anchors}.json` gives you the three
 files, and `tools/verify_warrant.py` checks them on your machine with no network and no
 shared secret.
+
+Come back later and `GET /v1/log/consistency?first=<your tree_size>`, then run
+`tools/verify_consistency.py` over that response and the receipt you kept. An inclusion
+proof says your warrant is in *a* tree; this says that tree is the one you were shown
+before, extended — which is the entire difference between a log and a list, and the check
+an operator handing every visitor a private history would fail.
 
 `GET /v1/runs/{id}/events` streams the run as it happens — every stage boundary and **every
 counterfactual as it completes**, so you watch the ablations being tested instead of a

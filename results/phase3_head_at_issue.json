@@ -1,0 +1,14 @@
+{
+  "log_id": "did:web:log.aegismesh.example",
+  "leaf_index": 0,
+  "tree_size": 1,
+  "root_hash": "sha256:4b8e08e1fbdfe87621d9a9724b1514fb61b2d72d8a976d35f15d79b365151ece",
+  "inclusion_proof": [],
+  "signed_root": {
+    "log_id": "did:web:log.aegismesh.example",
+    "tree_size": 1,
+    "root_hash": "sha256:4b8e08e1fbdfe87621d9a9724b1514fb61b2d72d8a976d35f15d79b365151ece",
+    "timestamp": "2026-08-14T10:12:55Z",
+    "signature": "z6sg5w1JE2eZXeJiEsXFktMtDz4uYQ3vLQvpYKw2s985RES17MiuCHmCGDsqfEWWTCU63hKexgV5TaTRt3ee6q1M"
+  }
+}

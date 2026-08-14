@@ -408,10 +408,42 @@ async def main() -> int:
         ),
         encoding="utf-8",
     )
+    # The stale-receipt problem above, turned into an artifact instead of a caveat. The
+    # receipt as *issued* commits to a root that is now several entries old, and until
+    # tools/verify_consistency.py existed there was no way for an auditor holding it to
+    # confirm the newer root extends it -- so the exported receipt had to be re-derived and
+    # the older head was simply discarded. Both are now published: the head the submitter
+    # was actually handed, and the proof that today's tree still contains it.
+    (RESULTS / "phase3_head_at_issue.json").write_text(
+        json.dumps(json.loads(receipt.model_dump_json()), indent=2), encoding="utf-8"
+    )
+    (RESULTS / "phase3_consistency.json").write_text(
+        json.dumps(
+            {
+                "first": receipt.tree_size,
+                "second": log.tree_size,
+                "proof": log.consistency_proof(receipt.tree_size),
+                "signed_tree_head": json.loads(log.signed_tree_head().model_dump_json()),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     print("  Two public keys and a root the auditor obtained from the witness. Nothing else.")
     print("\n    python tools/verify_warrant.py \\")
     print("        results/phase3_warrant.json \\")
     print("        results/phase3_receipt.json \\")
+    print("        results/phase3_trust_anchors.json")
+    print(
+        f"\n  The receipt was issued against a tree of {receipt.tree_size}; it is now "
+        f"{log.tree_size}. That gap is the one an"
+    )
+    print("  inclusion proof cannot close on its own -- a tree containing your entry is not")
+    print("  necessarily the tree you were shown before:")
+    print("\n    python tools/verify_consistency.py \\")
+    print("        results/phase3_head_at_issue.json \\")
+    print("        results/phase3_consistency.json \\")
     print("        results/phase3_trust_anchors.json")
     print(f"\n  The relying party also logged {len(decisions)} decision(s) of its own.")
     print("  Its verdicts live in its own log; the operator cannot drop the inconvenient ones.\n")

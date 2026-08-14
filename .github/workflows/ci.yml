@@ -67,12 +67,21 @@ jobs:
           # are expected and do not fail it.
           python demo/phase8_classifier_attack.py
 
-      - name: Standalone verifier
+      - name: Standalone verifiers
         # The claim this project exists to make, checked the way a stranger would check it.
+        #
+        # Both tools, because they answer different questions and a green check on only the
+        # first would be misleading: verify_warrant proves a warrant is in *a* tree, and
+        # verify_consistency proves that tree is the one an earlier visitor was shown,
+        # extended. An operator handing every visitor a private history passes the first.
         run: |
           python tools/verify_warrant.py \
             results/phase3_warrant.json \
             results/phase3_receipt.json \
+            results/phase3_trust_anchors.json
+          python tools/verify_consistency.py \
+            results/phase3_head_at_issue.json \
+            results/phase3_consistency.json \
             results/phase3_trust_anchors.json
 
       # Deliberately *not* asserted here: that results/ is unchanged after the demos run.

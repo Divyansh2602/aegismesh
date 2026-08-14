@@ -159,6 +159,11 @@ def _reaches_witnessed_root(
     # The receipt is older than the witness's head. Confirming it against the newer root
     # needs a consistency proof, which is not in these three files -- so this verifier says
     # what it can: the roots differ and it cannot bridge them without more evidence.
+    #
+    # `tools/verify_consistency.py` is that bridge, and it stays a separate program because
+    # it needs a fourth file this one deliberately does not take. Growing an optional mode
+    # here for every extra artifact an auditor might hold would make the tool that has to be
+    # readable to be trusted the hardest one in the repository to read.
     return decode_hash(receipt.root_hash) == witnessed_root
 
 

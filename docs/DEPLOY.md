@@ -246,11 +246,17 @@ Worth doing, in this order:
    restarts at zero and the earlier head belongs to a tree that no longer exists. Do not
    build a demo beat on it here — it is the property the disk buys.
 
-   **And be clear about what it shows even when it works: not much on its own.**
-   `tools/verify_warrant.py` deliberately holds only two public keys and one root and says
-   so — it does not take a consistency proof, and there is no CLI in this repo that checks
-   one. Reading the proof nodes by eye proves nothing. A CLI that verifies a consistency
-   proof between two heads is a genuine gap and is worth building before this is leaned on.
+   **Check it rather than reading the proof nodes by eye**, which proves nothing:
+
+   ```bash
+   python tools/verify_consistency.py earlier.json later.json trust_anchors.json
+   ```
+
+   `earlier.json` is any artifact carrying a head from the first visit — a `receipt.json`
+   works unchanged — and `later.json` is the `/v1/log/consistency` response. It holds one
+   public key, calls nothing, and reports whether today's tree still contains the one you
+   were shown. `tools/verify_warrant.py` cannot do this and says so: it deliberately takes
+   no consistency proof, so a receipt older than the root you hold is where it stops.
 2. Watch the **Keep warm** workflow's run history. On a durable log it is a third party's
    timestamped record that the tree only ever grew. Here it is weaker but still real: a
    record of uptime, and of every reset, written somewhere the operator does not control.

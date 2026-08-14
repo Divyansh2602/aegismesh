@@ -27,12 +27,12 @@ debugging your own change or something that was already broken.
 ## Verify the state in one command
 
 ```bash
-pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
+pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json   && python tools/verify_consistency.py        results/phase3_head_at_issue.json results/phase3_consistency.json results/phase3_trust_anchors.json
 ```
 
-Expected: **710 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
-standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
-no cost. If that holds, nothing has rotted.
+Expected: **721 tests pass and 1 skips, ruff clean, all five demos exit 0, the standalone
+verifier reports 6/6 checks passed and the consistency verifier reports 6/6.** Everything
+above runs offline — no API key, no cost. If that holds, nothing has rotted.
 
 "Five demos" is the five this command runs, which is not everything in `demo/`.
 `demo/phase4_eval.py` is the sixth and is excluded here and from CI: it needs the
@@ -195,6 +195,8 @@ aegis/
 
 tools/
   verify_warrant.py           standalone auditor path: 2 public keys, 1 root, nothing else
+  verify_consistency.py       the bridge between two heads: is today's tree the one you
+                              were shown before, extended? One public key, no network
 ```
 
 `policy/` is its own package rather than living inside `pep/` because the issuer and the
@@ -1054,6 +1056,55 @@ the one property it no longer has.
    whose selling point is the log getting longer has a cost curve pointed the wrong way.
 
 ---
+
+## The consistency verifier — closing the gap the audit path had left open
+
+`tools/verify_consistency.py`. Written after the deploy, because the gap was documented in
+three places and was the last thing a stranger genuinely could not check for themselves.
+
+**The gap, precisely.** `verify_warrant.py` proves a warrant is in *a* tree. It does not
+prove that tree is the one anybody was shown before — and the difference is the whole
+difference between a log and a list. An operator who hands every visitor a freshly built
+history containing only their own entry passes every inclusion proof ever issued. The
+verifier's own last check admitted this: when a receipt was older than the root the auditor
+held, it compared the two roots and gave up, because bridging them needed a proof that was
+not in its three files.
+
+Decisions worth defending:
+
+- **A separate program, not a fourth argument.** The obvious move is to teach
+  `verify_warrant.py` to accept an optional consistency proof. It answers a different
+  question from different inputs, and the tool whose entire value is being readable enough
+  to trust is the worst possible place to add a mode matrix. Two short programs that each
+  do one checkable thing beat one that branches.
+- **It accepts a receipt as the earlier head, unchanged.** A receipt calls it `signed_root`
+  and the API's consistency response calls it `signed_tree_head`; both are the same object.
+  Requiring an auditor to hand-edit JSON into a preferred shape is how a property ends up
+  checkable in principle and unchecked in practice.
+- **The proof is bound to the two heads in front of you.** Without that check, a log can
+  answer with a *genuine* proof between two other heads: every hash verifies and the answer
+  is about a pair of trees nobody asked about. `test_it_rejects_a_proof_about_a_different_pair_of_heads`
+  is that attack, and it uses a real proof rather than a corrupted one.
+- **Shrinkage is checked before the proof**, because a failed proof does not say what
+  happened and "the tree went backwards, 6 to 1" does.
+- **It says what it cannot do, in the passing case.** Consistency cannot detect a split
+  view: a log signing two divergent chains gives both auditors something that verifies
+  perfectly. The moment that most needs saying is when all six checks passed, so the note
+  prints there rather than only on failure, and
+  `test_it_names_the_split_view_it_cannot_detect` asserts it on a *successful* run. This is
+  also the argument for the witness being a real party rather than scaffolding: agreement
+  across trust domains is strictly stronger than anything one auditor can establish alone.
+
+**The tests are mostly forgeries**, because a verifier that has never been shown one has not
+been shown to detect one. The sharpest is `test_it_rejects_a_rewritten_history`: two trees
+of the same size differing in one entry, each internally perfect, both signed by the real
+key. Every inclusion proof in the second verifies against the second's own root. Only a
+consistency proof against the head somebody was handed earlier separates them — which is
+the entire reason this file exists.
+
+`demo/phase3_demo.py` now publishes the pair as artifacts, and CI verifies both tools rather
+than only the first. That mattered more than it looks: a green check on `verify_warrant`
+alone is exactly the check the private-history operator passes.
 
 ## Phase 8 — Article 12, paper, patent, standards
 

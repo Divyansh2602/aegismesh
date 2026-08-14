@@ -1,13 +1,11 @@
 {
-  "log_id": "did:web:log.aegismesh.example",
-  "leaf_index": 0,
-  "tree_size": 4,
-  "root_hash": "sha256:e1461e599287a70c9a00c3f1f6a89d697c95b917fae32c79dd32b41c32256e6f",
-  "inclusion_proof": [
+  "first": 1,
+  "second": 4,
+  "proof": [
     "sha256:c6b16210397f961be6cda2eb3ba4d174ad2f3b64732607b7c2bd43103ff6d283",
     "sha256:aef160b49526ee9c4f41790a37a720e956e5e1da4de5bdb3ebdec12ce59b1630"
   ],
-  "signed_root": {
+  "signed_tree_head": {
     "log_id": "did:web:log.aegismesh.example",
     "tree_size": 4,
     "root_hash": "sha256:e1461e599287a70c9a00c3f1f6a89d697c95b917fae32c79dd32b41c32256e6f",
