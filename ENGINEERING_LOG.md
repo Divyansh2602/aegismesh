@@ -779,7 +779,7 @@ custom cursor and a magnetic button. It was scrapped for reading as a generic AI
 landing page — which that combination genuinely is, and on a project whose entire argument
 is "do not trust things that merely look convincing" it works against the thesis.
 
-Rebuilt as an instrument rather than a landing page. **Warm paper (`#f4f1ea`), ink, one deep
+Rebuilt as an instrument rather than a landing page. **Warm paper (`#f5efe2`), ink, one deep
 blue accent, print-derived provenance colours** muted enough to sit next to body text at
 11px. Source Serif 4 for display at restrained sizes — authority from the face and the
 spacing, not from setting it 9rem tall — Inter for UI, JetBrains Mono with `tnum` for hashes
@@ -793,7 +793,7 @@ Ground was `#fbfaf8` against a pure `#ffffff` card — a two-percent difference.
 element on this page lives inside a card, so the cards *were* the page, the ground was a
 sliver at the margins, and the declared warmth never actually reached a viewer. Naming a
 colour warm is not the same as it being visible: what carries warmth is the *gap* between
-ground and card, not the hex value of either. Ground is now `#f4f1ea` and the card is a warm
+ground and card, not the hex value of either. Ground is now `#f5efe2` and the card is a warm
 off-white rather than white, so a card reads as a sheet laid on a desk. Shadows went
 warm-brown too — a neutral grey shadow desaturates the ground beneath it, which is how warm
 palettes drift back to grey one component at a time. The provenance inks needed no change and

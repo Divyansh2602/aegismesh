@@ -18,11 +18,11 @@
    * warmer and a step darker, and the card is a warm off-white rather than white, so a card
    * reads as a sheet laid on a desk instead of a seam you have to look for.
    */
-  --paper: #f4f1ea;
-  --surface: #fdfcf9;
-  --sunken: #ece7dd;
-  --line: #e0dacd;
-  --line-strong: #cac2b3;
+  --paper: #f5efe2;
+  --surface: #fdfbf6;
+  --sunken: #ebe4d5;
+  --line: #ded6c5;
+  --line-strong: #c7bda7;
 
   /* Warm blacks. A neutral grey on warm paper reads as a smudge rather than as ink. */
   --ink: #1c1a16;
