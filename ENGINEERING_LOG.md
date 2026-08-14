@@ -1,19 +1,18 @@
-# AegisMesh — Session Handoff
+# AegisMesh — Engineering Log
 
-**Written:** 2026-08-06 · **Updated:** 2026-08-12 · **Phase 5 complete**
-**Repo:** `C:\Users\Divyansh Gupta\Documents\everything`
+**Started:** 2026-08-06 · **Updated:** 2026-08-14 · **Phases 0–7 built, Phase 8 in progress**
 
 ---
 
 ## Read these first
 
-**Picking this up in a new session? Read *this file* end to end before anything else.** It is
-the only document that carries what the code cannot tell you: why each decision went the way
-it did, which limitations are deliberate, what is stale, and what to build next. The others
-describe the system; this one describes the *project*.
+This file carries what the code cannot: why each decision went the way it did, which
+limitations are deliberate, and what is still open. The other documents describe the system
+as it stands; this one records how it came to be built that way, including the reversals —
+several of which were more instructive than the things that worked first time.
 
 1. **This file** — status, the eleven design decisions, the product target Phases 5–8 build
-   toward, and the conventions that must not regress
+   toward, and the conventions that must not regress across changes
    · [`docs/DEPLOY.md`](docs/DEPLOY.md) is the deploy runbook, and is the only work left
    that cannot be done from inside the repo
 2. [`README.md`](README.md) — the pitch and the honest novelty positioning
@@ -74,7 +73,7 @@ enforceable on 2 August 2026 and requires exactly that traceability, with penalt
 €15M or 3% of global turnover — and no finalized technical standard exists yet.
 
 **The novelty claim, stated narrowly** (do not widen it — the surrounding work is real and
-an informed interviewer will know it):
+an informed reader will know it):
 
 > A method for producing a verifiable credential that binds a measured causal-influence
 > score over input provenance classes to a delegated-authority chain, and for enforcing
@@ -102,7 +101,7 @@ nothing.
 | 5b — Streaming & abuse controls | **Done** | SSE at `/v1/runs/{id}/events`, `AblationObserver` on the engine, `aegis/api/limits.py`, `tests/test_api_streaming.py` |
 | 6a — CORS, attack lab, replay | **Done** | `aegis/api/attacks.py`, `Run.evidence`, CORS, `POST /v1/runs/{id}/replay`, `tests/test_api_attacks.py` |
 | 6b — Console, all six screens | **Done** | `web/` — Next 16 + TS + Tailwind v4. Runner, stepper, live counterfactuals, three-state evidence, verdict, context, attack lab, auditor view, scored case grid |
-| 7 — Ship it | **Built, not deployed** | `.github/workflows/ci.yml`, `Dockerfile`, `render.yaml`, incremental Merkle tree, error handler. The deploy itself needs Divyansh's accounts |
+| 7 — Ship it | **Built, not deployed** | `.github/workflows/ci.yml`, `Dockerfile`, `render.yaml`, incremental Merkle tree, error handler. The deploy itself needs hosting accounts, so it stops at the repository boundary |
 | 8 — Article 12, paper, patent, standards | Pending | — |
 
 ### Phase 4 measured results (`results/phase4_agentdojo.json`)
@@ -145,7 +144,8 @@ mean model calls per consequential action  7.7   (worst case 13)
 
 Seven hand-built cases against a deterministic mock. They prove the engine is wired
 correctly and catch regressions in seconds; they are not a generalization claim, and Phase 4
-is what that claim now rests on. Saying this out loud in an interview is a strength.
+is what that claim now rests on. The distinction is stated wherever these numbers appear,
+because a perfect score on seven cases you wrote yourself is not evidence of much.
 
 ---
 
@@ -210,8 +210,9 @@ expected to disagree.
 
 ## The design decisions that carry this project
 
-These came out of *building and running it*, not from planning. They are the interview
-material — each one is a place where the obvious implementation was wrong.
+These came out of *building and running it*, not from planning. Each one is a place where
+the obvious implementation was wrong, and most were found by something breaking rather than
+by foresight.
 
 **1. Role does not establish trust.**
 Agent frameworks routinely paste retrieved documents into `user`-role messages. Treating
@@ -322,8 +323,7 @@ tool calls are ordinary in the OpenAI API, so a model emitting `get_balance` alo
 warranted, never enforced. An injection saying "check the balance first" is the entire
 attack. The gate's logic was correct throughout.
 
-**Unifying lesson, and the thing to say in an interview:** *per-argument attribution is the
-meaningful unit.* Action-level aggregation destroys the signal, because one action can be
+**The unifying lesson:** *per-argument attribution is the meaningful unit.* Action-level aggregation destroys the signal, because one action can be
 simultaneously legitimate in one field and hijacked in another — the human genuinely set
 the amount while the attacker set the destination. Decision 6 is the same lesson arriving
 from the other side: the per-field answer has three possible values, not two, and flattening
@@ -406,11 +406,10 @@ Decisions worth defending:
 
 ---
 
-## The product target — stated by Divyansh, 2026-08-06
+## The product target — set 2026-08-06
 
-> "I want a full frontend and backend, everything working. An interviewer or any person
-> using GitHub should be able to fully use the functionality, and it should be interactive
-> and responsive and legitimate."
+A full frontend and backend, everything working: anyone arriving from GitHub should be able
+to exercise the real functionality, interactively and responsively, with nothing staged.
 
 Not a screenshot tour and not a canned walkthrough. Someone lands on a URL, drives the real
 pipeline with their own input, attacks it, and leaves convinced. **Phases 5–7 exist to
@@ -424,7 +423,7 @@ project it is demonstrating.
 ### The single most convincing thing this can offer
 
 **Artifacts downloaded from the live site must verify offline on the visitor's own laptop.**
-A recruiter downloads `warrant.json`, `receipt.json` and `trust_anchors.json`, runs
+A visitor downloads `warrant.json`, `receipt.json` and `trust_anchors.json`, runs
 `python tools/verify_warrant.py` locally with no network and no shared secret, and gets 6/6.
 That is the entire third-party-verifiability claim demonstrated rather than asserted, by a
 stranger who trusts nobody involved. Build toward it — it is the thing nothing else in this
@@ -432,13 +431,13 @@ space can show.
 
 ### Two earlier assessments that this target reverses
 
-Both were recorded in this file on the same day under a narrower target. Stated plainly so
-the next session does not follow the stale advice:
+Both were recorded here on the same day under a narrower target. Stated plainly so the stale
+advice does not get followed later:
 
 1. **"Drop Next.js for server-rendered HTML" is withdrawn.** That was correct for a
    click-through demo with no interactivity. The target now *is* interactivity — bring your
    own injection, watch ablations stream, inspect evidence, re-run attacks — so a real
-   frontend framework is justified on technical grounds rather than résumé ones.
+   frontend framework is justified by what the site has to do.
 2. **"Persistence does not block a demo" is withdrawn for the log specifically.** A
    transparency log's whole value is being append-only *over time*. A log that resets when
    the host sleeps demonstrates nothing, and a shared log that visibly grows across visitors
@@ -711,10 +710,10 @@ rediscovered.
 
 ## Phase 6 — the console
 
-**Goal:** the frontend Divyansh described — full, interactive, responsive, legitimate.
+**Goal:** the frontend described above — full, interactive, responsive, legitimate.
 
-**Definition of done:** a non-technical interviewer reaches "the payment was refused, and
-here is which sentence caused it" without reading JSON or asking a question. A technical one
+**Definition of done:** a non-technical visitor reaches "the payment was refused, and here
+is which sentence caused it" without reading JSON or asking a question. A technical one
 reaches "I attacked it myself, two of my attacks worked, and it told me so."
 
 ### Screens
@@ -774,10 +773,9 @@ half of 4 are up; the attack lab and the auditor view are not.
 ### The visual direction, and why it changed
 
 The first pass was a dark theme with oversized Bebas Neue caps, a neon accent, film grain, a
-custom cursor and a magnetic button. Divyansh's verdict was that it read as a vibe-coded
-site, and he was right: that combination *is* the generic AI-landing-page signature, and on a
-project whose entire argument is "do not trust things that merely look convincing" it works
-against the thesis.
+custom cursor and a magnetic button. It was scrapped for reading as a generic AI-generated
+landing page — which that combination genuinely is, and on a project whose entire argument
+is "do not trust things that merely look convincing" it works against the thesis.
 
 Rebuilt as an instrument rather than a landing page. **Warm paper (`#fbfaf8`), ink, one deep
 blue accent, print-derived provenance colours** muted enough to sit next to body text at
@@ -849,8 +847,9 @@ re-rendering a component would not be bounded by it.
 
 ## Phase 7 — what is built, and the one step left
 
-**Everything except the deploy itself is done and verified.** The remaining step needs
-Divyansh's Render and Vercel accounts, which is why it stops here rather than being half-done.
+**Everything except the deploy itself is done and verified.** The remaining step needs live
+Render and Vercel accounts, which is why it stops at the repository boundary rather than
+being left half-done.
 
 | Built | Verified how |
 | --- | --- |
@@ -923,7 +922,7 @@ worse than having none.
 ### The remaining step
 
 **Full runbook: [`docs/DEPLOY.md`](docs/DEPLOY.md)** — every click, the verification command
-after each step, and a table of the six ways this goes wrong. Summarised here so the handoff
+after each step, and a table of the six ways this goes wrong. Summarised here so this file
 stays self-contained:
 
 1. **Render → New Blueprint** → point at this repo. Confirm the Starter plan and the 1 GB
@@ -1146,20 +1145,15 @@ Unchanged in substance, moved back by the three phases above.
   `test_a_suppressed_denial_leaves_no_gap`. Do not "fix" these; they are the honesty
   mechanism. If one starts failing, a limitation was closed and the docs need updating.
 - Run `ruff check .` and `pytest -q` before every commit.
-- **One commit per phase**, with a message explaining the decisions, not the diff. Every
-  commit hash in this file's earlier history is stale — the history was rewritten on
-  2026-08-06 (see below), so use `git log` rather than any hash quoted in prose.
-- **Divyansh is the sole author. Never add a `Co-Authored-By` trailer**, and commit as
-  `Divyansh Gupta <divyansh2622005@gmail.com>` — his global git config already sets this, so
-  just do not override it. Both were retrofitted across all seven commits with
-  `git filter-branch` + force push on 2026-08-06 and verified through the GitHub API. This is
-  the convention most likely to regress silently, because tooling defaults tend to add the
-  trailer. After any history rewrite, also delete `refs/original/refs/heads/<branch>`:
-  filter-branch leaves it behind, it never appears in `git branch`, and it pins the old
-  history indefinitely.
-- **Remote is `github.com/Divyansh2602/aegismesh`, currently private.** He has asked for it to
-  be public and wants to review GitHub's rendering first, so treat flipping it as expected
-  rather than as a new decision. Push freely to `main`; ask before any further force push.
+- **One commit per phase**, with a message explaining the decisions, not the diff. Any commit
+  hash quoted in this file's earlier prose is stale — the history was rewritten early on, so
+  use `git log` rather than a hash written down here.
+
+  One thing worth knowing after any history rewrite, because it is invisible until it bites:
+  delete `refs/original/refs/heads/<branch>`. `git filter-branch` leaves it behind, it never
+  shows up in `git branch`, and it pins the entire old history indefinitely.
+- **Remote is [`github.com/Divyansh2602/aegismesh`](https://github.com/Divyansh2602/aegismesh).**
+  Single-author project, so there is no branch protocol beyond keeping `main` green.
 - Honesty over polish. Where something does not work, say so in the docs — the threat
   model's residual-risk section and this file's caveat on Phase 2 numbers are the pattern.
 

@@ -29,7 +29,7 @@ If you have five minutes, in this order:
 | --- | --- |
 | **What it does** | `python demo/phase3_demo.py` — the attack, the refusal, then four attacks on the defence itself |
 | **What it gets wrong** | `python demo/phase4_attack.py` — four attacks on our *own* design; two of them succeed |
-| **Why it's built this way** | [`HANDOFF.md`](HANDOFF.md) § "design decisions that carry this project" — eleven places the obvious implementation was wrong |
+| **Why it's built this way** | [`ENGINEERING_LOG.md`](ENGINEERING_LOG.md) § "design decisions that carry this project" — eleven places the obvious implementation was wrong |
 | **What it claims** | [`docs/SPEC.md`](docs/SPEC.md) for the format and the maths, [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §6 for the twelve residual risks |
 
 ```
@@ -399,7 +399,7 @@ independently names the account — a property of that scenario, not of payments
 Phase 2's case set is still run, as the fast regression signal
 (`results/phase2_evaluation.json`).
 
-Continuing this work? Start with [`HANDOFF.md`](HANDOFF.md).
+Continuing this work? Start with [`ENGINEERING_LOG.md`](ENGINEERING_LOG.md).
 
 ## What is and isn't novel here
 
@@ -465,4 +465,4 @@ value is credibility and adoption rather than exclusivity.
 
 Built by [Divyansh Gupta](https://github.com/Divyansh2602) as a security-research and
 portfolio project. The engineering log — every decision, every reversal, and the reasoning
-behind both — is in [`HANDOFF.md`](HANDOFF.md).
+behind both — is in [`ENGINEERING_LOG.md`](ENGINEERING_LOG.md).

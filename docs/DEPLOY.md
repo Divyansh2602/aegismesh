@@ -235,5 +235,5 @@ Worth doing, in this order:
    record that the tree only ever grew.
 3. Walk the demo end to end against production once — pick a scenario, watch the
    counterfactuals stream, read the three argument states, attack the warrant, download the
-   artifacts and verify them — so the first time you do it in front of an interviewer is not
-   the first time it has been done live.
+   artifacts and verify them — so the first time it is demonstrated to someone else is not
+   the first time it has been done against production.
