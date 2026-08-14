@@ -226,6 +226,7 @@ repositories with no activity for 60 days.
 | `log_persistence.configured: false` | **Expected on the free plan** — `AEGIS_API_LOG_DATABASE` is unset and the log is in memory. Not a fault |
 | Log size resets to 0 on its own | Expected on the free plan: the instance slept or redeployed. Keep-warm reduces how often it happens; only a disk removes it |
 | `boots` stays `1` across a restart | Only meaningful once you add a disk: the file is being recreated, so the disk is not attached (Step 1) |
+| `log_durable: true` on a free instance | A database path is set with no disk behind it. Check the `Dockerfile` as well as `render.yaml` — the path used to be set in both, and removing it from one left the other in charge. `tests/test_deployment_config.py` now guards this |
 | `log_durable: true` but history resets | Database path set with no disk behind it. `log_durable` only checks configuration; `log_persistence.proven` is the field that answers this |
 | Keep-warm run fails (red, not a notice) | Only happens when `log_durable` is `true` and the tree shrank — a real broken promise. A reset on the free plan is a notice by design |
 | First visit after idle hangs ~1 minute | Free-tier cold start; the request that wakes the instance is the one that waits |

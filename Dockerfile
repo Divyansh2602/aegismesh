@@ -38,17 +38,29 @@ COPY --from=builder /install /usr/local
 COPY --chown=aegis:aegis aegis /app/aegis
 COPY --chown=aegis:aegis tools /app/tools
 
-# The transparency log's database lives here. Mount a persistent disk at this path, or the
-# log resets on every restart and the one property a returning visitor can test personally
-# — that the tree grew and still verifies against the head they were given — is gone.
+# A mount point for the transparency log's database, created and owned by the runtime user
+# so a deployment that attaches a persistent disk here needs no further setup.
+#
+# **The path is deliberately not set as AEGIS_API_LOG_DATABASE.** An image cannot know
+# whether a volume was actually mounted, and setting it unconditionally produces the one
+# combination this project warns against: SQLite writes happily to ephemeral container
+# storage, /health reports `log_durable: true` because that field only checks that a path
+# was configured, and the history vanishes on the next restart — the service claiming
+# precisely the property it had just lost. This is not hypothetical; it is what the first
+# Render deploy did, because the path was written here *and* in render.yaml, and removing
+# it from one left the other in charge.
+#
+# So the deployment decides. One that provides a disk sets the variable and points it at the
+# mount; one that does not gets an in-memory log and says so in /health. Defaulting to the
+# honest answer costs a paid deployment one environment variable and costs a free one
+# nothing but the truth.
 RUN mkdir -p /data && chown aegis:aegis /data
 VOLUME ["/data"]
 
 WORKDIR /app
 USER aegis
 
-ENV AEGIS_API_LOG_DATABASE=/data/aegis-log.sqlite3 \
-    PORT=8000
+ENV PORT=8000
 
 EXPOSE 8000
 

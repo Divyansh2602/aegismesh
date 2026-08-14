@@ -30,7 +30,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json
 ```
 
-Expected: **706 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
+Expected: **710 tests pass and 1 skips, ruff clean, all five demos exit 0, and the
 standalone verifier reports 6/6 checks passed.** Everything above runs offline — no API key,
 no cost. If that holds, nothing has rotted.
 
@@ -918,6 +918,39 @@ is the answer and this workflow is the monitor. It is guarded by
 `if: vars.AEGIS_API_URL != ''` so it skips cleanly before the first deploy — a monitor that
 fails every ten minutes until you deploy trains you to ignore its notifications, which is
 worse than having none.
+
+### The first deploy claimed durability it did not have, and it is decision F1 again
+
+Found on the live service, not in review. `/health` on a free Render instance with no disk
+reported `log_durable: true` and `log_persistence.configured: true`.
+
+`AEGIS_API_LOG_DATABASE` was set in **two** places — `ENV` in the `Dockerfile` and an
+`envVar` in `render.yaml`. Retargeting the deploy at the free tier removed it from the
+Blueprint, which looked like the whole fix and was verified by reading that file. The image
+kept setting it, so the running service configured a SQLite database on ephemeral container
+storage: writes succeed, `log_durable` reports configured-and-therefore-true, and the entire
+history disappears on the next restart. The service was making exactly the claim this
+project exists to refute, on the deployment meant to demonstrate it.
+
+**The shape is F1 exactly** — one rule written twice, in two files, required to agree, and
+the correction applied to only one copy. There the fix was to delete the duplicate into
+`provenance/content.py`. Here the two files cannot be merged: an image and a Blueprint are
+different artefacts with different lifetimes. So the rule moved to the one that can actually
+know the answer. **An image cannot tell whether `/data` is a persistent disk or scratch
+space**, so it no longer guesses; the deployment sets the path, and a deployment without a
+disk gets an in-memory log and says so.
+
+Two things worth keeping from it:
+
+- **What caught it was `log_persistence`, the field added one commit earlier** for exactly
+  this case, and `boots` is what would have settled it. The instrumentation earned its place
+  within a day of existing. What *did not* catch it was reading the configuration — the
+  Blueprint was correct in isolation.
+- **`tests/test_deployment_config.py` is new and reads two files as text**, which nothing
+  else in this suite does. The invariant is not reachable from Python: it is that a path is
+  never configured without a disk, and a disk never declared on a plan that cannot hold one.
+  The guard was checked by reintroducing the bug and confirming it fails, because a test
+  written after the fact that has never once gone red is an assertion about nothing.
 
 ### The remaining step
 
