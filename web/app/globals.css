@@ -10,18 +10,27 @@
  * mean something.
  */
 :root {
-  --paper: #fbfaf8;
-  --surface: #ffffff;
-  --sunken: #f5f3ef;
-  --line: #e6e2da;
-  --line-strong: #d3cdc2;
+  /**
+   * Ground and card are two different papers, and the gap between them is what stops the
+   * screen reading as flat white. An earlier pass had ground #fbfaf8 against a pure #ffffff
+   * card, which is a two-percent difference: since nearly every element on this page lives
+   * inside a card, the cards *were* the page and the warmth never showed. Ground is now
+   * warmer and a step darker, and the card is a warm off-white rather than white, so a card
+   * reads as a sheet laid on a desk instead of a seam you have to look for.
+   */
+  --paper: #f4f1ea;
+  --surface: #fdfcf9;
+  --sunken: #ece7dd;
+  --line: #e0dacd;
+  --line-strong: #cac2b3;
 
-  --ink: #1a1917;
-  --ink-soft: #56534d;
-  --ink-faint: #8b867e;
+  /* Warm blacks. A neutral grey on warm paper reads as a smudge rather than as ink. */
+  --ink: #1c1a16;
+  --ink-soft: #57534a;
+  --ink-faint: #8a8376;
 
   --accent: #1d3f5e;
-  --accent-soft: #eaeef3;
+  --accent-soft: #e6ecf3;
 
   /* Provenance. Print inks, not neon: distinguishable side by side and legible at 11px. */
   --p0: #2e6b4f;
@@ -33,7 +42,9 @@
   --permit: #2e6b4f;
   --reject: #a3352a;
 
-  --shadow-card: 0 1px 2px rgba(26, 25, 23, 0.04), 0 8px 24px -12px rgba(26, 25, 23, 0.08);
+  /* Warm-brown shadow rather than neutral grey. A grey shadow on warm paper desaturates
+     the ground underneath it and is what makes "warm" palettes drift back toward grey. */
+  --shadow-card: 0 1px 2px rgba(61, 48, 28, 0.05), 0 8px 24px -12px rgba(61, 48, 28, 0.13);
 }
 
 @theme inline {

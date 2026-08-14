@@ -777,7 +777,7 @@ custom cursor and a magnetic button. It was scrapped for reading as a generic AI
 landing page — which that combination genuinely is, and on a project whose entire argument
 is "do not trust things that merely look convincing" it works against the thesis.
 
-Rebuilt as an instrument rather than a landing page. **Warm paper (`#fbfaf8`), ink, one deep
+Rebuilt as an instrument rather than a landing page. **Warm paper (`#f4f1ea`), ink, one deep
 blue accent, print-derived provenance colours** muted enough to sit next to body text at
 11px. Source Serif 4 for display at restrained sizes — authority from the face and the
 spacing, not from setting it 9rem tall — Inter for UI, JetBrains Mono with `tnum` for hashes
@@ -785,6 +785,18 @@ so columns of numbers line up and can be compared. Hierarchy comes from small-ca
 hairline rules. The cursor, the grain and the magnetic button are **deleted**; the only motion
 left is a short opacity/transform rise on scroll and a 220ms row-in on streamed rows, both
 compositor-only and both disabled under `prefers-reduced-motion`.
+
+**The palette was warm on paper and white on screen, and the reason is worth keeping.**
+Ground was `#fbfaf8` against a pure `#ffffff` card — a two-percent difference. Nearly every
+element on this page lives inside a card, so the cards *were* the page, the ground was a
+sliver at the margins, and the declared warmth never actually reached a viewer. Naming a
+colour warm is not the same as it being visible: what carries warmth is the *gap* between
+ground and card, not the hex value of either. Ground is now `#f4f1ea` and the card is a warm
+off-white rather than white, so a card reads as a sheet laid on a desk. Shadows went
+warm-brown too — a neutral grey shadow desaturates the ground beneath it, which is how warm
+palettes drift back to grey one component at a time. The provenance inks needed no change and
+in fact sit better, which is unsurprising: they were chosen as print inks, and print inks are
+designed for paper rather than for white.
 
 Enterprise details that were missing and now are not: sticky top bar carrying live log size
 and API reachability, copy-to-clipboard on every hash and warrant id (an auditor's whole job
