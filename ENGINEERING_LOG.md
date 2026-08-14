@@ -30,7 +30,7 @@ debugging your own change or something that was already broken.
 pip install -e ".[dev]" && pytest -q && ruff check .   && python demo/phase1_demo.py && python demo/phase2_eval.py   && python demo/phase3_demo.py && python demo/phase4_attack.py   && python demo/phase8_classifier_attack.py   && python tools/verify_warrant.py        results/phase3_warrant.json results/phase3_receipt.json results/phase3_trust_anchors.json   && python tools/verify_consistency.py        results/phase3_head_at_issue.json results/phase3_consistency.json results/phase3_trust_anchors.json
 ```
 
-Expected: **721 tests pass and 1 skips, ruff clean, all five demos exit 0, the standalone
+Expected: **751 tests pass and 1 skips, ruff clean, all five demos exit 0, the standalone
 verifier reports 6/6 checks passed and the consistency verifier reports 6/6.** Everything
 above runs offline — no API key, no cost. If that holds, nothing has rotted.
 

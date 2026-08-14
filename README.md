@@ -7,7 +7,7 @@
 
 ![demo](https://img.shields.io/badge/demo-live-2ea44f)
 ![phase](https://img.shields.io/badge/phase-7%20of%208%20complete-2ea44f)
-![tests](https://img.shields.io/badge/tests-721%20passing-2ea44f)
+![tests](https://img.shields.io/badge/tests-751%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
