@@ -5,12 +5,39 @@
 > An agent action without a warrant is an unsigned transaction.
 > AegisMesh makes agents prove *why*, not just *who*.
 
+![demo](https://img.shields.io/badge/demo-live-2ea44f)
 ![phase](https://img.shields.io/badge/phase-7%20of%208%20complete-2ea44f)
 ![tests](https://img.shields.io/badge/tests-710%20passing-2ea44f)
 ![offline](https://img.shields.io/badge/runs-offline%2C%20no%20API%20key-blue)
 ![python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 ![standards](https://img.shields.io/badge/W3C%20VC%20%C2%B7%20RFC%206962%20%C2%B7%20RFC%208785-informational)
+
+## → [aegismesh-omega.vercel.app](https://aegismesh-omega.vercel.app)
+
+Run the real pipeline on a document you write, watch each counterfactual arrive as it is
+measured, attack the defence, and see the payment API refuse. Nothing on that site is
+staged: every number comes from `aegis` executing, and a screen with no real output ships
+empty rather than filled with something plausible.
+
+**Then check it without trusting any of it.** Download `warrant.json`, `receipt.json` and
+`trust_anchors.json` from the auditor view and run the standalone verifier on your own
+machine — no network, no shared secret, two public keys and one root hash:
+
+```bash
+pip install -e . && python tools/verify_warrant.py \
+    warrant.json receipt.json trust_anchors.json      # → 6/6 checks passed
+```
+
+Three caveats, up front rather than in a footnote. The model behind it is a **bundled
+deterministic surrogate, not a hosted LLM** — every screen says so, and `docs/SPEC.md` §9
+records what that does and does not establish. The API runs on a free instance that sleeps,
+so the first request after a quiet spell takes about a minute. And that instance has no
+persistent disk, so the shared log is in memory and resets when it sleeps — `/health`
+reports `log_durable: false` rather than pretending otherwise. A downloaded artifact bundle
+is self-contained and keeps verifying regardless.
+
+## Or run it locally, offline
 
 ```bash
 pip install -e ".[dev]" && pytest -q && python demo/phase3_demo.py
@@ -124,7 +151,7 @@ signal away.
 | 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
 | 5 — Public API | ✅ | Sessions, runs, bring-your-own-injection, a shared transparency log with optional durable storage, auditor artifacts that verify offline — and an SSE stream that reports **every ablation as it completes**, with abuse controls that name the control refusing you |
 | 6 — Console | ✅ | Next.js console over the real API: run a scenario, watch counterfactuals stream in, read per-argument attribution in three distinct states, attack the defence, and download artifacts that verify on your own machine |
-| 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
+| 7 — Ship it | ✅ | CI on 3.11 and 3.13, container, Blueprint — and **deployed**: console on Vercel, API on Render, artifacts from the live site verified offline at 6/6 |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
 
 702 tests passing, lint clean. Everything runs offline against a bundled deterministic mock
@@ -214,6 +241,9 @@ attack the warrant you just produced and download the three files that verify of
 poisoned ones mean anything.
 
 ## Deploying it
+
+Live at **[aegismesh-omega.vercel.app](https://aegismesh-omega.vercel.app)**, with the API
+at [`aegis-api-yghj.onrender.com/health`](https://aegis-api-yghj.onrender.com/health).
 
 **Full runbook with verification at each step: [`docs/DEPLOY.md`](docs/DEPLOY.md).**
 
