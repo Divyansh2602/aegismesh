@@ -122,7 +122,7 @@ signal away.
 | 2 — Causal attribution | ✅ | Leave-one-out ablation, per-argument influence, necessity kept separate |
 | 3 — Warrants, log, enforcement | ✅ | **The system refuses.** Poisoned invoice runs end to end, the payment API rejects it, and an inclusion proof survives verification by a third party holding two public keys |
 | 4 — Adversarial evaluation | ✅ | Measured against AgentDojo, then turned on itself. **Two working evasions found in our own design** — one fixed, one open and documented |
-| 5 — Public API | ✅ | Sessions, runs, bring-your-own-injection, a shared transparency log that survives a restart, auditor artifacts that verify offline — and an SSE stream that reports **every ablation as it completes**, with abuse controls that name the control refusing you |
+| 5 — Public API | ✅ | Sessions, runs, bring-your-own-injection, a shared transparency log with optional durable storage, auditor artifacts that verify offline — and an SSE stream that reports **every ablation as it completes**, with abuse controls that name the control refusing you |
 | 6 — Console | ✅ | Next.js console over the real API: run a scenario, watch counterfactuals stream in, read per-argument attribution in three distinct states, attack the defence, and download artifacts that verify on your own machine |
 | 7 — Ship it | 🟨 | CI, container, deploy config. **Deploy pending** |
 | 8 — Article 12, paper, patent, standards | ⬜ | — |
@@ -223,21 +223,24 @@ on every push, on Python 3.11 and 3.13, plus lint and build for the console.
 runtime, so its results are committed to `results/` and breaking it still shows green.
 
 **API — Render.** [`render.yaml`](render.yaml) is a Blueprint: point Render at this repo and
-it builds [`Dockerfile`](Dockerfile) and mounts a disk for the log.
+it builds [`Dockerfile`](Dockerfile).
 
-> The disk is not optional and it is not free. Render's free instances have an ephemeral
-> filesystem and sleep when idle, so on a free plan the transparency log resets on every
-> wake — which destroys the one property a returning visitor can test personally, that the
-> tree grew between two visits and still verifies against the head they were given. Disks
-> need a paid instance plus $0.25/GB/month.
+> **The Blueprint is configured for the free tier, which cannot attach a persistent disk.**
+> The transparency log therefore runs in memory and resets whenever the instance restarts or
+> wakes from sleep. Stated plainly because it is a real loss: the log growing across two
+> visits, and a consistency proof bridging them, is not demonstrable on this plan.
 >
-> To run without one, **three things change together**: `plan: starter` → `plan: free`,
-> delete the `disk:` block, and delete `AEGIS_API_LOG_DATABASE`. Deleting only the disk
-> leaves a paid instance with no disk. Leaving the path set with no disk behind it is the
-> combination to avoid: `log_durable` reports `true` because it only checks that a path was
-> configured. **`log_persistence` is the field that answers the real question** — it carries
-> a boot counter written into the database file, so `proven: true` means the file has
-> outlived a process rather than merely been configured.
+> It does not cost the larger claim. The auditor bundle is pinned as one snapshot — warrant,
+> receipt and trust anchors together — so a downloaded bundle verifies 6/6 offline forever,
+> and the live log resetting afterwards does not touch it.
+>
+> **To add durability**, three things move together: `plan: free` → `plan: starter`, add a
+> `disk:` block at `/data`, and set `AEGIS_API_LOG_DATABASE` to a path on it. Disks need a
+> paid instance plus $0.25/GB/month. Setting the path *without* the disk is the combination
+> to avoid: `log_durable` reports `true` because it only checks that a path was configured.
+> **`log_persistence` is the field that answers the real question** — it carries a boot
+> counter written into the database file, so `proven: true` means the file has outlived a
+> process rather than merely been configured.
 
 `AEGIS_API_LOG_SEED` is generated once by Render and kept stable, which is the actual
 requirement: it must be secret *and* unchanging, because a log whose signing key changes is a

@@ -1,8 +1,8 @@
 # Deploying AegisMesh
 
-The console goes to **Vercel**, the API container goes to **Render**, and the transparency
-log lives on a Render disk. Everything in this file needs an account, a browser and — for
-the disk — a card; it is the part of Phase 7 that cannot be automated from inside the repo.
+The console goes to **Vercel** and the API container goes to **Render**. Both are on free
+plans, so this needs two accounts and a browser and no card. It is the part of Phase 7 that
+cannot be automated from inside the repo.
 
 Everything else is already built and verified: CI is green on Python 3.11 and 3.13, the
 image builds and has been run (non-root, and the durable log survives `docker restart` with
@@ -15,39 +15,40 @@ still show a green check.
 
 ---
 
-## Before you start — two decisions
+## Before you start — what the free tier costs, stated once
 
-### The disk is not optional and it is not free
+`render.yaml` is configured for Render's **free** plan. Free instances have an ephemeral
+filesystem and cannot attach a persistent disk, so the transparency log runs in memory and
+resets whenever the service restarts or wakes from sleep.
 
-Render's free instances have an ephemeral filesystem and sleep after 15 minutes idle, so on
-a free plan the transparency log resets every time the service wakes. That does not merely
-lose data: it destroys the one property a returning visitor can test personally — that the
-tree grew between two visits and still verifies against the head they were given — which is
-the most convincing artifact this project has.
+**What that costs.** The log growing across two separate visits, and a consistency proof
+bridging them, is not demonstrable on this plan. That is a genuine loss and it is worth
+naming rather than discovering later.
 
-Persistent disks require a paid instance (~$7/mo) plus $0.25/GB/month.
+**What it does not cost, which is the larger claim.** The auditor bundle is pinned as one
+snapshot — warrant, receipt and trust anchors fetched together and cached — so a visitor who
+downloads it gets 6/6 from `tools/verify_warrant.py` offline, on their own machine, trusting
+nobody involved. That bundle is self-contained. The live log resetting an hour later does not
+touch the files they already hold. **The headline demonstration survives the free tier
+intact**, and Step 5 is where you confirm it against production.
 
-**If you would rather not pay yet, three things change together in `render.yaml`:**
+Because the log is honestly in-memory, `/health` reports `log_durable: false` and
+`log_persistence: {configured: false, proven: false}` with a note saying why. Nothing in the
+deployment claims a property it does not have, which is the only version of this worth
+shipping.
 
-1. `plan: starter` → `plan: free` — **easy to miss, and skipping it bills you anyway.**
-   Deleting only the disk leaves a paid instance with no disk: the worst of both.
-2. Delete the `disk:` block.
-3. Delete `AEGIS_API_LOG_DATABASE`.
+### To add durability later
 
-Deleting the disk while leaving the database path set is the one combination to avoid:
-`log_durable` reports `true` — it only checks that a path was configured — while the history
-silently restarts, so the service claims a property it does not have. `log_persistence` in
-`/health` is what actually distinguishes them, and Step 1 explains how to read it.
+Three things move together in `render.yaml`, and the ordering matters:
 
-On the free path, also **skip Step 4**: the keep-warm workflow fails on a log that resets,
-and a monitor that fails every ten minutes only teaches you to ignore it. That is explained
-where it matters, in Step 4.
+1. `plan: free` → `plan: starter` (~$7/mo).
+2. Add a `disk:` block mounted at `/data` ($0.25/GB/month).
+3. Set `AEGIS_API_LOG_DATABASE` to `/data/aegis-log.sqlite3`.
 
-### Read the repo as a stranger first
-
-`README.md` and `docs/THREAT_MODEL.md` changed substantially. Open the repository on GitHub
-and read them before flipping it public — rendering, ordering and the first screenful are
-easier to judge there than locally.
+**Setting 3 without 2 is the one combination to avoid.** `log_durable` would report `true` —
+it only checks that a path was configured — while the history silently restarts, so the
+service would claim exactly the property it had just lost. `log_persistence` is what
+distinguishes them; the verification block in Step 1 explains how to read it.
 
 ---
 
@@ -55,7 +56,8 @@ easier to judge there than locally.
 
 1. <https://dashboard.render.com> → **New** → **Blueprint**
 2. Connect the repository. Render reads [`render.yaml`](../render.yaml) automatically.
-3. Confirm the **Starter** plan and the 1 GB disk mounted at `/data`.
+3. Confirm the plan reads **Free**, and that no disk is listed. If Render offers to add one,
+   decline — a disk forces a paid instance, and the Blueprint is not set up to use it.
 4. **It will prompt for `AEGIS_API_CORS_ORIGINS`**, which is declared `sync: false` with no
    value and therefore asked for during apply — two steps before you can know it, because
    Vercel does not exist yet. Enter a placeholder such as `http://localhost:3000` and
@@ -67,40 +69,39 @@ easier to judge there than locally.
 `AEGIS_API_LOG_SEED` is generated once by Render and kept stable across deploys, which is
 the actual requirement: it must be secret *and* unchanging. A log whose signing key changes
 is a log whose entire signed history stops verifying, so rotating it is a break rather than
-a hygiene improvement. The default committed in `aegis/api/config.py` is published in this
-repository and must never sign a durable log; the service logs a warning if it is.
+a hygiene improvement. This still matters on the free plan: within a single uptime window
+the roots handed to visitors are signed with it, and a key that changed per deploy would
+orphan every artifact bundle downloaded before the change. The default committed in
+`aegis/api/config.py` is published in this repository and must never sign anything that
+matters; the service logs a warning if it is used with a durable log.
 
-**Verify — and this takes a restart, on purpose:**
+**Verify:**
 
 ```bash
 curl -s https://<your-app>.onrender.com/health
 ```
 
-Expect `"status":"ok"`. Then look at `log_persistence`, **not** `log_durable`:
+Expect `"status":"ok"`, and on this plan:
 
 ```json
-"log_persistence": {"configured": true, "proven": false, "boots": 1, "note": "First start…"}
+"log_durable": false,
+"log_persistence": {"configured": false, "proven": false, "boots": null,
+                    "note": "In-memory log: history resets when this process does…"}
 ```
 
-`log_durable` only says durable storage was *configured*. It is an `isinstance` check and is
-true whenever a database path is set — including on a container with no volume behind that
-path, where SQLite works perfectly and the file vanishes on the next restart. Gating on it
-would pass in exactly the case worth catching.
+**That is the correct output here, not a fault.** The free tier has no disk and the service
+says so plainly. What you are checking is that it is *honest*, not that it is durable.
 
-`boots` is a counter written into the database file itself, so it is the one piece of
-evidence that survives the thing it measures. **Restart the service from the Render
-dashboard, then check again:**
+The first request may take 30–60 seconds: free instances sleep after 15 minutes idle and the
+request that wakes one is the one that waits for it.
 
-```bash
-curl -s https://<your-app>.onrender.com/health
-```
-
-- `"proven": true` with `boots: 2` → the file outlived a process. The disk is real.
-- `boots` still `1` after a restart → the file was recreated. **The disk is not attached**,
-  and history will reset every time the service sleeps or redeploys.
-
-Do this before Step 2. Every later step assumes the log persists, and this is the only check
-that establishes it rather than assuming it.
+> **If you later add the disk**, this is where it gets verified, and it takes a restart on
+> purpose. `log_durable` only says storage was *configured* — an `isinstance` check, true
+> whenever a path is set, including on a container with no volume behind it. `boots` is a
+> counter written into the database file itself, so it is the one piece of evidence that
+> survives the thing it measures. Restart from the Render dashboard and check again:
+> `"proven": true` with `boots: 2` means the file outlived a process. `boots` still `1`
+> means the disk is not attached.
 
 ---
 
@@ -164,17 +165,32 @@ Then **Actions → Keep warm → Run workflow** to test it immediately rather th
 the schedule. Until this variable exists the workflow skips cleanly by design — a monitor
 that fails every ten minutes before you have deployed only teaches you to ignore it.
 
-> **Skip this step entirely if you took the free, no-disk path.** The workflow fails when
-> the log shrinks, and a log with no disk behind it shrinks on every restart — so it would
-> fail every ten minutes, permanently, which is the exact anti-pattern the guard above
-> exists to avoid. Set `AEGIS_API_URL` only once the log persists (Step 1 proves it).
+**On the free plan this step matters more, not less.** Free instances sleep after 15 minutes
+idle, and the in-memory log dies with them — so staying awake is the only thing that lets one
+visitor's entry still be there when the next person arrives. It also spares every visitor the
+30–60 second cold start. Ten minutes sits comfortably inside the fifteen-minute window.
 
-On a paid instance this is not needed for warmth, since paid services do not sleep. It earns
-its place through the second thing it does: every ping records the log's tree size and
-**fails if the log shrank**, which is an append-only violation observed from outside the
-operator's own infrastructure. Stated precisely so it is not oversold — it compares counts,
-not roots, so it cannot see a fork or a length-preserving rewrite. It is not a substitute for
-`aegis/log/witness.py`.
+The second thing it does is record the log's tree size on every ping and compare it to the
+previous one. How it reacts depends on what the service claimed about itself:
+
+- `log_durable: true` and the tree shrank → **the run fails.** A service claiming durability
+  whose log went backwards has a path with no surviving volume behind it.
+- `log_durable: false` and the tree shrank → **recorded as a notice.** That is the documented
+  behaviour of an in-memory log, and failing on it would mean a red run every ten minutes for
+  a property nothing ever claimed — which is precisely the anti-pattern the `if:` guard above
+  exists to avoid.
+
+Stated precisely so it is not oversold: it compares counts, not roots, so it cannot see a
+fork or a length-preserving rewrite. It is not a substitute for `aegis/log/witness.py`.
+
+Two GitHub caveats worth knowing rather than discovering: scheduled workflows are
+**best-effort** and are frequently delayed under load, and GitHub disables schedules on
+repositories with no activity for 60 days.
+
+> **Free-tier budget.** Render gives 750 instance-hours per month across your free services.
+> Keeping one service awake continuously uses roughly 730 in a 31-day month, so this fits —
+> but only for a single free web service on the account. A second one will exhaust the
+> allowance.
 
 ---
 
@@ -196,8 +212,8 @@ not roots, so it cannot see a fork or a length-preserving rewrite. It is not a s
 
    **6/6 is the entire pitch.** Confirm it against production, not only locally — the whole
    claim is that a stranger who trusts nobody can check it on their own machine.
-3. Put the URL at the top of `README.md`.
-4. GitHub → Settings → **Change visibility → Public**.
+3. Put the URL at the top of `README.md`. The repository is already public, so this is the
+   step that actually makes the demo reachable by anyone reading it.
 
 ---
 
@@ -207,11 +223,12 @@ not roots, so it cannot see a fork or a length-preserving rewrite. It is not a s
 | --- | --- |
 | Console loads but every panel is blank | `AEGIS_API_CORS_ORIGINS` missing, mismatched, or still the placeholder from the Blueprint prompt (Step 3) |
 | Vercel build fails immediately | Root Directory not set to `web` (Step 2) |
-| `boots` stays `1` across a restart | **No disk attached.** The file is being recreated (Step 1) |
-| `log_persistence.configured: false` | `AEGIS_API_LOG_DATABASE` is empty — in-memory log |
+| `log_persistence.configured: false` | **Expected on the free plan** — `AEGIS_API_LOG_DATABASE` is unset and the log is in memory. Not a fault |
+| Log size resets to 0 on its own | Expected on the free plan: the instance slept or redeployed. Keep-warm reduces how often it happens; only a disk removes it |
+| `boots` stays `1` across a restart | Only meaningful once you add a disk: the file is being recreated, so the disk is not attached (Step 1) |
 | `log_durable: true` but history resets | Database path set with no disk behind it. `log_durable` only checks configuration; `log_persistence.proven` is the field that answers this |
-| Keep-warm fails every 10 minutes | The log is resetting, so the tree shrinks. Fix durability or skip Step 4 |
-| First visit after idle hangs ~1 minute | Free-tier cold start; paid instances do not sleep |
+| Keep-warm run fails (red, not a notice) | Only happens when `log_durable` is `true` and the tree shrank — a real broken promise. A reset on the free plan is a notice by design |
+| First visit after idle hangs ~1 minute | Free-tier cold start; the request that wakes the instance is the one that waits |
 | One visitor's traffic rate-limits everyone | `AEGIS_API_TRUST_FORWARDED_FOR` unset — already `true` in the Blueprint |
 
 ---
@@ -220,19 +237,22 @@ not roots, so it cannot see a fork or a length-preserving rewrite. It is not a s
 
 Worth doing, in this order:
 
-1. Visit twice with a gap, note `tree_size` from `GET /v1/log` each time, and fetch
-   `GET /v1/log/consistency?first=<first visit's size>`. The endpoint returns the proof and
-   the current signed head.
+1. Visit twice **within one uptime window**, note `tree_size` from `GET /v1/log` each time,
+   and fetch `GET /v1/log/consistency?first=<first visit's size>`. The endpoint returns the
+   proof and the current signed head.
 
-   **Be clear about what that shows on its own: not much.** `tools/verify_warrant.py`
-   deliberately holds only two public keys and one root and says so — it does not take a
-   consistency proof, and there is no CLI in this repo that checks one. Reading the proof
-   nodes by eye proves nothing. What you *can* confirm without new tooling is the weaker but
-   still useful pair: `tree_size` never decreased, and a receipt issued on the first visit
-   still verifies on the second. A CLI that verifies a consistency proof between two heads
-   is a genuine gap and is worth building before this is used as a demo beat.
-2. Watch the **Keep warm** workflow's run history — it becomes a third party's timestamped
-   record that the tree only ever grew.
+   On the free plan this only works while the instance stays awake; once it sleeps the log
+   restarts at zero and the earlier head belongs to a tree that no longer exists. Do not
+   build a demo beat on it here — it is the property the disk buys.
+
+   **And be clear about what it shows even when it works: not much on its own.**
+   `tools/verify_warrant.py` deliberately holds only two public keys and one root and says
+   so — it does not take a consistency proof, and there is no CLI in this repo that checks
+   one. Reading the proof nodes by eye proves nothing. A CLI that verifies a consistency
+   proof between two heads is a genuine gap and is worth building before this is leaned on.
+2. Watch the **Keep warm** workflow's run history. On a durable log it is a third party's
+   timestamped record that the tree only ever grew. Here it is weaker but still real: a
+   record of uptime, and of every reset, written somewhere the operator does not control.
 3. Walk the demo end to end against production once — pick a scenario, watch the
    counterfactuals stream, read the three argument states, attack the warrant, download the
    artifacts and verify them — so the first time it is demonstrated to someone else is not

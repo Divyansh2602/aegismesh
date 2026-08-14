@@ -4,8 +4,10 @@
 # come back, so a visitor arriving cold sees a blank page for a minute. Ten minutes is
 # comfortably inside that window.
 #
-# **On a paid instance this is not needed for warmth** -- paid services do not sleep. It
-# still earns its place there, because of the second thing it does.
+# **On a paid instance this is not needed for warmth** -- paid services do not sleep. On the
+# free tier it is what keeps the log alive between visitors: the log is in memory there, so
+# every spin-down resets it, and staying awake is the only thing that lets one visitor's
+# entry still be there when the next arrives.
 #
 # ## The second thing it does
 #
@@ -13,9 +15,14 @@
 # append-only log must never shrink, and this is the one check that can catch it happening
 # from *outside* the operator's own infrastructure. That is a weak external witness: it
 # cannot prove the log is honest, and it is not a substitute for the witness in
-# `aegis/log/witness.py`, which compares roots rather than counts. What it does give is a
-# third party's timestamped record that the tree grew and never went backwards -- and on a
-# free instance with no persistent disk, a reset is exactly what it will catch.
+# `aegis/log/witness.py`, which compares roots rather than counts.
+#
+# A shrink is read against what the service claimed about itself. If it reports
+# `log_durable: true` and the tree went backwards, that is a broken promise and the run
+# fails. If it reports false -- the free-tier configuration in `render.yaml` -- a reset is
+# the documented behaviour of an in-memory log and is recorded as a notice. Failing on it
+# would mean a red run every ten minutes for a property the service never claimed, which
+# trains you to ignore the notifications and makes the monitor worse than none.
 name: Keep warm
 
 on:
@@ -73,16 +80,27 @@ jobs:
           previous=$(cat .keep-warm/tree_size 2>/dev/null || echo "")
           echo "tree_size=$size durable=$durable previous=${previous:-none}" >> "$GITHUB_STEP_SUMMARY"
 
+          # What a shrink means depends entirely on what the service claimed. Those are two
+          # different findings and merging them would make this monitor useless in both
+          # directions: it would either cry wolf ten times an hour on a plan that never
+          # promised durability, or stay quiet on the one case worth waking up for.
           if [ -n "$previous" ] && [ "$size" -lt "$previous" ]; then
-            echo "::error::The transparency log shrank: $previous -> $size."
-            echo "An append-only log cannot get shorter. On a free Render instance this is"
-            echo "the ephemeral filesystem resetting -- attach a persistent disk, or drop"
-            echo "AEGIS_API_LOG_DATABASE so the service stops claiming to be durable."
-            exit 1
+            if [ "$durable" = "True" ]; then
+              echo "::error::The transparency log shrank: $previous -> $size."
+              echo "The service reports log_durable: true, so this is a broken promise: the"
+              echo "configured database path has no surviving volume behind it. Attach a"
+              echo "persistent disk, or unset AEGIS_API_LOG_DATABASE so the service stops"
+              echo "claiming a property it does not have."
+              exit 1
+            fi
+            echo "::notice::The log reset: $previous -> $size. Expected on this deployment —"
+            echo "log_durable is false, so the log is in memory and resets when the instance"
+            echo "sleeps or redeploys. Not a failure, because nothing claimed otherwise."
+            echo "log reset $previous -> $size (in-memory log, expected)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           if [ "$durable" != "True" ]; then
-            echo "::warning::log_durable is $durable — this log does not survive a restart."
+            echo "::notice::log_durable is $durable — this log does not survive a restart."
           fi
 
           printf '%s' "$size" > .keep-warm/tree_size

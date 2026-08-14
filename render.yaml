@@ -1,48 +1,51 @@
 # Render Blueprint for the API. The console deploys separately to Vercel.
 #
 # ------------------------------------------------------------------ read this first
-# **The disk is not optional, and it is not free.** Render's free instances have an
-# ephemeral filesystem and sleep when idle, so on a free plan the transparency log resets
-# every time the service wakes. That does not merely lose data: it destroys the one
-# property a returning visitor can test personally — that the tree grew between two visits
-# and still verifies against the head they were handed last time — which is the most
-# convincing artifact this project has.
+# **Configured for Render's free tier, which cannot attach a persistent disk.** The
+# transparency log therefore runs in memory and resets whenever the instance restarts or
+# wakes from sleep. That is a real loss and it is recorded here rather than hidden: the
+# property a returning visitor could otherwise test personally -- that the tree grew
+# between two visits and still verifies against the head they were handed last time -- is
+# not available on this plan. `/health` says so on its own; `log_persistence` reports
+# `configured: false, proven: false` with a note explaining why.
 #
-# Persistent disks require a paid instance (`starter`) plus $0.25/GB/month for the disk.
-# If that is not wanted yet, **three things change together**: `plan: starter` -> `plan:
-# free`, delete the `disk:` block, and delete the AEGIS_API_LOG_DATABASE variable. Deleting
-# only the disk leaves a paid instance with no disk, which is the worst of both.
+# What the free tier does *not* cost, and it is the larger claim: the auditor bundle is a
+# self-contained snapshot -- warrant, receipt and trust anchors pinned together at the
+# moment it is first requested -- so a visitor who downloads it verifies 6/6 offline under
+# tools/verify_warrant.py on a machine that trusts nobody involved, and the log resetting
+# afterwards does not touch the bundle they already hold.
 #
-# Leaving the variable set without a disk is the specific combination to avoid: the log
-# writes to a path that vanishes, and `log_durable` reports `true` because it only checks
-# that a path was configured. `log_persistence` in /health is the field that tells them
-# apart -- it carries a boot counter written into the database file, so `proven: true`
-# means the file has genuinely outlived a process. See docs/DEPLOY.md step 1.
+# **The combination to avoid** is setting AEGIS_API_LOG_DATABASE with no disk behind it.
+# SQLite would work perfectly, /health would report `log_durable: true` because that field
+# only checks that a path was configured, and the file would vanish on every restart -- the
+# service claiming precisely the property it had just lost. So the path stays unset here,
+# and the log is honestly in-memory.
+#
+# **To upgrade when there is a budget, three things move together:** `plan: free` ->
+# `plan: starter`, add back a `disk:` block mounted at /data, and set
+# AEGIS_API_LOG_DATABASE to /data/aegis-log.sqlite3. Then restart the service and read
+# `log_persistence` in /health rather than `log_durable`: `proven: true` requires
+# `boots > 1`, which is the only evidence that the file genuinely outlived a process.
+# Disks cost $0.25/GB/month on top of the instance.
 services:
   - type: web
     name: aegis-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /health
     autoDeploy: true
 
-    disk:
-      name: aegis-log
-      mountPath: /data
-      # Entries are canonicalized warrant documents of a few kilobytes. 1GB holds a very
-      # large number of them; the log is bounded by attention, not by storage.
-      sizeGB: 1
-
     envVars:
-      - key: AEGIS_API_LOG_DATABASE
-        value: /data/aegis-log.sqlite3
+      # AEGIS_API_LOG_DATABASE is deliberately NOT set on this plan. See the note above:
+      # a configured path with no volume behind it is worse than no path at all, because
+      # it makes the service report durability it does not have.
 
-      # Generated once by Render and kept stable across deploys, which is exactly the
-      # requirement: the seed must be secret *and* unchanging. A log whose signing key
-      # changes is a log whose entire signed history stops verifying, so rotating this is
-      # not a hygiene improvement — it is a break. The committed default in config.py is
-      # published in this repository and must never sign a durable log.
+      # Generated once by Render and kept stable across deploys. Still worth doing on a
+      # plan where the log resets: within any single uptime window the roots handed to
+      # visitors are signed with it, and a key that changed per deploy would orphan every
+      # artifact bundle downloaded before the change. The committed default in config.py
+      # is published in this repository and must never sign anything that matters.
       - key: AEGIS_API_LOG_SEED
         generateValue: true
 
@@ -52,6 +55,22 @@ services:
       # because honouring the header anywhere else lets a caller choose its own bucket.
       - key: AEGIS_API_TRUST_FORWARDED_FOR
         value: "true"
+
+      # ---------------------------------------------------------------- 512MB, 0.1 CPU
+      # Free instances are small, and the library defaults were not chosen for them.
+      # Retained ablation events are bounded by max_sessions x session_model_call_budget
+      # -- 200 x 1500, which is 300 000 retained events and does not fit in 512MB. These
+      # are the same T12 controls the threat model names, tightened for the box rather
+      # than replaced by something new; every refusal still names the control refusing it.
+      - key: AEGIS_API_MAX_SESSIONS
+        value: "40"
+      - key: AEGIS_API_SESSION_MODEL_CALL_BUDGET
+        value: "600"
+      # Four concurrent attributions on a shared 0.1 CPU makes all four slow rather than
+      # any of them fast. This bounds instantaneous load, which is what actually stalls
+      # the instance.
+      - key: AEGIS_API_MAX_CONCURRENT_ATTRIBUTIONS
+        value: "2"
 
       # The console's origin. Set in the dashboard after Vercel assigns the domain --
       # `sync: false` means Render will not overwrite it from this file on redeploy.
