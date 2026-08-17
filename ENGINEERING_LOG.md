@@ -1,12 +1,8 @@
 # AegisMesh — Engineering Log
 
-**Started:** 2026-08-06 · **Updated:** 2026-08-14 · **Phases 0–7 built, Phase 8 in progress**
+**Started:** 2026-08-06 · **Updated:** 2026-08-17 · **Phases 0–7 built, Phase 8 in progress**
 
 ---
-
-> **Picking this up?** Read **"STOP HERE — open work, 2026-08-14"** below first. There is
-> one unfinished change sitting uncommitted in the working tree, and production is serving a
-> wrong answer until it lands.
 
 ## Read these first
 
@@ -1061,28 +1057,29 @@ the one property it no longer has.
 
 ---
 
-## STOP HERE — open work, 2026-08-14
+## Closed — the results/ image bug, 2026-08-14 to 2026-08-17
 
-**One thing is unfinished, it is two files, and production is currently wrong because of
-it.** Read this before anything else; everything below this section is history.
+**Landed.** `.dockerignore` and its regression test were committed and pushed in `9da8d41`
+on 2026-08-17; Render rebuilt; `GET /v1/real-model` on the live API now reports
+`measured: true` with both models, and the console's "Against real models" panel is visible
+on the live site. `pytest -q` at merge: 757 passing, 1 skipped. `ruff check .`: clean.
 
-### What is broken right now
+### What was broken
 
-`GET https://aegis-api-yghj.onrender.com/v1/real-model` returns `measured: false` with zero
-models. The endpoint is deployed and correct; the **data is not in the image**.
+`GET https://aegis-api-yghj.onrender.com/v1/real-model` reported `measured: false` with zero
+models, for three days, while being correct locally. The endpoint was deployed and correct;
+the **data was not in the image**.
 
 `Dockerfile` gained `COPY results /app/results` so the site could serve the committed
 real-model measurements. `.dockerignore` still excluded `results/`. Docker does not treat an
 ignored COPY source as an error, so the build succeeded, the deploy succeeded, and the
-endpoint reports the same thing it would report on a machine where nobody had ever run the
+endpoint reported the same thing it would report on a machine where nobody had ever run the
 sweep. The console's panel hides itself when `measured` is false, so **the "Beyond the
-surrogate" section is silently absent from the live site** while being present and correct
-locally.
+surrogate" section was silently absent from the live site** while being present and correct
+locally — the failure mode this whole project argues against, reproduced in its own
+deployment.
 
-### The uncommitted fix
-
-Two modified files in the working tree, tested and passing, **not committed and not pushed**
-because the commit was interrupted:
+### The fix
 
 - **`.dockerignore`** — `results/` replaced with `results/*` + `!results/*.json`. Only JSON
   is re-included; the `*.sqlite3` rules above it still apply, so a transparency-log database
@@ -1090,14 +1087,10 @@ because the commit was interrupted:
 - **`tests/test_deployment_config.py`** — adds
   `test_the_image_can_actually_receive_everything_it_copies`, which reads both files and
   fails when a `COPY` source is excluded with no re-inclusion. Verified by reintroducing the
-  bug and watching it go red before restoring the fix.
+  bug and watching it go red before restoring the fix. This test is what should catch the
+  fourth occurrence of this shape before it ships, rather than after.
 
-To finish: `pytest -q` (expect **757** passing, 1 skipped — the badge and the verification
-line above still say 756 and need the bump), `ruff check .`, commit both files, push, then
-wait for Render to rebuild and confirm `/v1/real-model` reports `measured: true` with two
-models. Vercel needs no change; the panel appears on its own once the API serves data.
-
-### Why this keeps happening, which is the part worth keeping
+### Why this kept happening, which is the part worth keeping
 
 This is the **third** time in this repository that one rule lived in two files, the correction
 was applied to one of them, and nothing failed:
