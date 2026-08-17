@@ -4,6 +4,10 @@
 
 ---
 
+> **Picking this up?** Read **"STOP HERE — open work, 2026-08-14"** below first. There is
+> one unfinished change sitting uncommitted in the working tree, and production is serving a
+> wrong answer until it lands.
+
 ## Read these first
 
 This file carries what the code cannot: why each decision went the way it did, which
@@ -1054,6 +1058,62 @@ the one property it no longer has.
    test oracle, which is the point of having them); or accept it and state the tree size
    at which the service is retired. Do not discover this in production — a public site
    whose selling point is the log getting longer has a cost curve pointed the wrong way.
+
+---
+
+## STOP HERE — open work, 2026-08-14
+
+**One thing is unfinished, it is two files, and production is currently wrong because of
+it.** Read this before anything else; everything below this section is history.
+
+### What is broken right now
+
+`GET https://aegis-api-yghj.onrender.com/v1/real-model` returns `measured: false` with zero
+models. The endpoint is deployed and correct; the **data is not in the image**.
+
+`Dockerfile` gained `COPY results /app/results` so the site could serve the committed
+real-model measurements. `.dockerignore` still excluded `results/`. Docker does not treat an
+ignored COPY source as an error, so the build succeeded, the deploy succeeded, and the
+endpoint reports the same thing it would report on a machine where nobody had ever run the
+sweep. The console's panel hides itself when `measured` is false, so **the "Beyond the
+surrogate" section is silently absent from the live site** while being present and correct
+locally.
+
+### The uncommitted fix
+
+Two modified files in the working tree, tested and passing, **not committed and not pushed**
+because the commit was interrupted:
+
+- **`.dockerignore`** — `results/` replaced with `results/*` + `!results/*.json`. Only JSON
+  is re-included; the `*.sqlite3` rules above it still apply, so a transparency-log database
+  can never ride into an image this way.
+- **`tests/test_deployment_config.py`** — adds
+  `test_the_image_can_actually_receive_everything_it_copies`, which reads both files and
+  fails when a `COPY` source is excluded with no re-inclusion. Verified by reintroducing the
+  bug and watching it go red before restoring the fix.
+
+To finish: `pytest -q` (expect **757** passing, 1 skipped — the badge and the verification
+line above still say 756 and need the bump), `ruff check .`, commit both files, push, then
+wait for Render to rebuild and confirm `/v1/real-model` reports `measured: true` with two
+models. Vercel needs no change; the panel appears on its own once the API serves data.
+
+### Why this keeps happening, which is the part worth keeping
+
+This is the **third** time in this repository that one rule lived in two files, the correction
+was applied to one of them, and nothing failed:
+
+1. `_as_text` / `message_text` — the classifier's extraction rule, written twice, both copies
+   wrong identically (finding F1).
+2. `AEGIS_API_LOG_DATABASE` — set in the `Dockerfile` *and* `render.yaml`; removed from the
+   Blueprint, kept by the image, and the service reported durability it did not have.
+3. This one — `COPY` in the Dockerfile, exclusion in `.dockerignore`.
+
+The first was fixed by deleting the duplicate. The other two cannot be, because the files
+genuinely serve different purposes, so the invariant is asserted in
+`tests/test_deployment_config.py` instead. **The common shape is worth naming: every one of
+these failed silently in the direction of looking fine**, and each was found by reading
+production rather than by any check. When adding a file to the image, the question is not
+"did the build pass" — it is "does `.dockerignore` agree".
 
 ---
 

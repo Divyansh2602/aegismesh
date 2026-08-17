@@ -47,7 +47,17 @@ web/
 tests/
 demo/
 docs/
-results/
+
+# `results/` used to be here, and the JSON is now needed at runtime: /v1/real-model serves
+# the committed measurements so the site and the repository cannot disagree about what was
+# measured. Adding `COPY results` to the Dockerfile without this change copied nothing at
+# all -- the build succeeded, the endpoint deployed, and it reported `measured: false`
+# forever. Two files that have to agree, and the one nobody edited wins silently.
+#
+# Only the JSON is re-included. Anything else that lands in results/ stays out, and the
+# *.sqlite3 rules above still apply, so a log database can never ride in this way.
+results/*
+!results/*.json
 Dockerfile
 .dockerignore
 *.md
