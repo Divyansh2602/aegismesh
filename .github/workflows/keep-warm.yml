@@ -25,13 +25,10 @@
 # trains you to ignore the notifications and makes the monitor worse than none.
 name: Keep warm
 
+# Schedule paused 2026-09-14: the Render service this pings was deleted. Left as
+# workflow_dispatch only rather than removing the file, so a future service just needs the
+# cron line restored and AEGIS_API_URL set again -- nothing else here changes.
 on:
-  schedule:
-    # Every ten minutes. GitHub's scheduler is best-effort: runs are frequently delayed
-    # under load and are not guaranteed to fire on time, so treat this as "usually inside
-    # fifteen minutes" rather than as a cron guarantee. If the service must never sleep,
-    # the paid instance is the answer and this workflow is the monitor.
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 permissions:
